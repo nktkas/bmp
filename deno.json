@@ -1,0 +1,13 @@
+{
+  "name": "@nktkas/bmp",
+  "version": "1.0.0",
+  "exports": "./src/mod.ts",
+  "fmt": {
+    "lineWidth": 120
+  },
+  "license": "MIT",
+  "lock": false,
+  "tasks": {
+    "build:npm": "deno run --allow-env --allow-read --allow-write --allow-run build/npm.ts"
+  }
+}
