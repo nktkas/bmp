@@ -21,6 +21,7 @@ await build({
     keywords: [
       "bmp",
       "bitmap",
+      "encoder",
       "decoder",
       "image",
     ],
