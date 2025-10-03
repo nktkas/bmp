@@ -34,16 +34,34 @@ export interface RGBImageData {
  * @example
  * ```ts
  * import { decode } from "@nktkas/bmp";
- * import * as fs from "node:fs/promises";
  *
- * const file = await fs.readFile("image.bmp");
- * const bmp = decode(file);
- * // {
- * //   width: 800,
- * //   height: 600,
- * //   channels: 4,
- * //   data: Uint8Array(1920000) [ ... ] // RGB(A) pixel data
- * // }
+ * // A minimal 1x1 pixel 24-bit BMP file
+ * const bmp = new Uint8Array([
+ *   // BMP File Header (14 bytes)
+ *   0x42, 0x4D,             // Signature 'BM'
+ *   0x3A, 0x00, 0x00, 0x00, // File size (58 bytes)
+ *   0x00, 0x00,             // Reserved
+ *   0x00, 0x00,             // Reserved
+ *   0x36, 0x00, 0x00, 0x00, // Pixel data offset (54 bytes)
+ *   // DIB Header (BITMAPINFOHEADER, 40 bytes)
+ *   0x28, 0x00, 0x00, 0x00, // Header size (40)
+ *   0x01, 0x00, 0x00, 0x00, // Width (1 pixel)
+ *   0x01, 0x00, 0x00, 0x00, // Height (1 pixel)
+ *   0x01, 0x00,             // Color planes (1)
+ *   0x18, 0x00,             // Bits per pixel (24)
+ *   0x00, 0x00, 0x00, 0x00, // Compression (0 = none)
+ *   0x04, 0x00, 0x00, 0x00, // Image size (4 bytes with padding)
+ *   0x00, 0x00, 0x00, 0x00, // X pixels per meter
+ *   0x00, 0x00, 0x00, 0x00, // Y pixels per meter
+ *   0x00, 0x00, 0x00, 0x00, // Colors used
+ *   0x00, 0x00, 0x00, 0x00, // Important colors
+ *   // Pixel data (BGR format + padding to 4 bytes)
+ *   0x00, 0x00, 0x00,       // Black pixel (Blue, Green, Red)
+ *   0x00                    // Padding to 4 bytes
+ * ]);
+ *
+ * const raw = decode(bmp);
+ * // { width: 1, height: 1, channels: 3, data: Uint8Array(3) [0, 0, 0] }
  * ```
  */
 export function decode(bmp: Uint8Array, options?: DecodeOptions): RGBImageData {
@@ -57,6 +75,7 @@ export function decode(bmp: Uint8Array, options?: DecodeOptions): RGBImageData {
     case 2:
       return BI_RLE_TO_RAW(bmp, header);
     case 3:
+    case 6:
       return BI_BITFIELDS_TO_RAW(bmp, header);
     case 4:
     case 5:

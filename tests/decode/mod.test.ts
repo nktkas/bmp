@@ -1,75 +1,92 @@
+/**
+ * For testing, we use sample images from Jason Summers' BMP Suite (https://entropymine.com/jason/bmpsuite/).
+ */
+
 // deno-lint-ignore-file no-import-prefix
-import { decode } from "@nktkas/bmp";
+import { decode, extractCompressedData } from "@nktkas/bmp";
 import { assertEquals } from "jsr:@std/assert@^1.0.14";
+import { exists } from "jsr:@std/fs@^1.0.19";
+import sharp from "npm:sharp@^0.34.4";
+import pixelmatch from "npm:pixelmatch@^7.1.0";
 
-function pam2raw(buffer: Uint8Array) {
-  const text = new TextDecoder().decode(buffer);
-  const lines = text.split("\n");
-
-  if (lines[0] !== "P7") throw new Error("Invalid PAM file");
-
-  let width = 0, height = 0, channels = 0;
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith("WIDTH ")) width = parseInt(line.split(" ")[1]);
-    else if (line.startsWith("HEIGHT ")) height = parseInt(line.split(" ")[1]);
-    else if (line.startsWith("DEPTH ")) channels = parseInt(line.split(" ")[1]);
-  }
-
-  const dataOffset = text.indexOf("\nENDHDR\n") + 8;
-  const data = buffer.slice(dataOffset);
-
-  return { width, height, channels, data };
-}
-
-function isEqualsUint8ArrayWithTolerance(a: Uint8Array, b: Uint8Array, tolerance: number): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (Math.abs(a[i] - b[i]) > tolerance) return false;
-  }
-  return true;
-}
-
-function compareDecodeResult(bmpBuffer: Uint8Array, pamBuffer: Uint8Array) {
-  const bmp = decode(bmpBuffer);
-  const pam = pam2raw(pamBuffer);
-
-  assertEquals(bmp.width, pam.width);
-  assertEquals(bmp.height, pam.height);
-  assertEquals(bmp.channels, pam.channels);
+async function compareDecodeResult(bmpBuffer: Uint8Array, pngBuffer: Uint8Array) {
+  let bmp: ReturnType<typeof decode>;
   try {
-    assertEquals(bmp.data, pam.data);
+    bmp = decode(bmpBuffer);
   } catch (error) {
-    // colors may differ by 2 units due to the peculiarity of some other decoders
-    if (!isEqualsUint8ArrayWithTolerance(bmp.data, pam.data, 2)) {
+    // for BI_JPEG and BI_PNG, we test `extractCompressedData` instead of `decode`
+    if (error instanceof Error && error.message.includes('Use "extractCompressedData" to')) {
+      const extracted = extractCompressedData(bmpBuffer);
+      const raw = await sharp(extracted.data).raw().toBuffer({ resolveWithObject: true });
+      bmp = { width: raw.info.width, height: raw.info.height, channels: raw.info.channels as 3 | 4, data: raw.data };
+    } else {
       throw error;
     }
   }
+
+  const png = await sharp(pngBuffer).raw().toBuffer({ resolveWithObject: true });
+
+  assertEquals(bmp.width, png.info.width);
+  assertEquals(bmp.height, png.info.height);
+  assertEquals(bmp.channels, png.info.channels);
+
+  const diff = pixelmatch(
+    addAlphaChannel(bmp.data),
+    addAlphaChannel(png.data),
+    undefined,
+    bmp.width,
+    bmp.height,
+    { threshold: 0.004 }, // Allow very small differences (due to different rounding strategies)
+  );
+  assertEquals(diff, 0, `Found ${diff} different pixels`);
+}
+
+function addAlphaChannel(data: Uint8Array): Uint8Array {
+  if (data.length % 3 !== 0) return data; // Not RGB data
+  const withAlpha = new Uint8Array((data.length / 3) * 4);
+  for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
+    withAlpha[j] = data[i];
+    withAlpha[j + 1] = data[i + 1];
+    withAlpha[j + 2] = data[i + 2];
+    withAlpha[j + 3] = 255; // Opaque alpha
+  }
+  return withAlpha;
 }
 
 Deno.test('Decode "good" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/decode/images/good")) {
+  for await (const sample of Deno.readDir("./tests/decode/bmpsuite-2.8/g")) {
     if (!sample.name.endsWith(".bmp")) continue;
-
     await t.step(sample.name, async () => {
-      const bmpBuffer = await Deno.readFile(`./tests/decode/images/good/${sample.name}`);
-      const pamBuffer = await Deno.readFile(`./tests/decode/images/good/${sample.name.replace(/\.bmp$/, ".pam")}`);
-      compareDecodeResult(bmpBuffer, pamBuffer);
+      const bmpBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/g/${sample.name}`);
+      const pngBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/g/${sample.name.replace(/\.bmp$/, ".png")}`);
+      await compareDecodeResult(bmpBuffer, pngBuffer);
     });
   }
 });
 
 Deno.test('Decode "questionable" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/decode/images/questionable")) {
+  for await (const sample of Deno.readDir("./tests/decode/bmpsuite-2.8/q")) {
     if (!sample.name.endsWith(".bmp")) continue;
-
     await t.step(sample.name, async () => {
-      const bmpBuffer = await Deno.readFile(`./tests/decode/images/questionable/${sample.name}`);
-      const pamBuffer = await Deno.readFile(
-        `./tests/decode/images/questionable/${sample.name.replace(/\.bmp$/, ".pam")}`,
-      );
-      compareDecodeResult(bmpBuffer, pamBuffer);
+      const bmpBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/q/${sample.name}`);
+      const pngBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/q/${sample.name.replace(/\.bmp$/, ".png")}`);
+      await compareDecodeResult(bmpBuffer, pngBuffer);
+    });
+  }
+});
+
+Deno.test('Decode "bad" BMP', async (t) => {
+  for await (const sample of Deno.readDir("./tests/decode/bmpsuite-2.8/b")) {
+    if (!sample.name.endsWith(".bmp")) continue;
+    const hasPng = await exists(`./tests/decode/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
+    await t.step({
+      name: sample.name,
+      fn: async () => {
+        const bmpBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/b/${sample.name}`);
+        const pngBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
+        await compareDecodeResult(bmpBuffer, pngBuffer);
+      },
+      ignore: !hasPng,
     });
   }
 });

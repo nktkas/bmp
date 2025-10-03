@@ -41,36 +41,36 @@ function isNonThrowFn(fn: () => unknown): boolean {
 
 // -------------------- BI_RGB --------------------
 
-const pal1 = await Deno.readFile("./tests/decode/images/good/pal1.bmp");
-runBench("BI_RGB__pal1", pal1);
+const pal1 = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/pal1.bmp");
+runBench("BI_RGB: 1 bit", pal1);
 
-const pal4 = await Deno.readFile("./tests/decode/images/good/pal4.bmp");
-runBench("BI_RGB__pal4", pal4);
+const pal4 = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/pal4.bmp");
+runBench("BI_RGB: 4 bit", pal4);
 
-const pal8 = await Deno.readFile("./tests/decode/images/good/pal8.bmp");
-runBench("BI_RGB__pal8", pal8);
+const pal8 = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/pal8.bmp");
+runBench("BI_RGB: 8 bit", pal8);
 
-const rgb16 = await Deno.readFile("./tests/decode/images/good/rgb16.bmp");
-runBench("BI_RGB__rgb16", rgb16);
+const rgb16 = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/rgb16.bmp");
+runBench("BI_RGB: 16 bit", rgb16);
 
-const rgb24 = await Deno.readFile("./tests/decode/images/good/rgb24.bmp");
-runBench("BI_RGB__rgb24", rgb24);
+const rgb24 = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/rgb24.bmp");
+runBench("BI_RGB: 24 bit", rgb24);
 
-const rgb32 = await Deno.readFile("./tests/decode/images/good/rgb32.bmp");
-runBench("BI_RGB__rgb32", rgb32);
+const rgb32 = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/rgb32.bmp");
+runBench("BI_RGB: 32 bit", rgb32);
 
 // -------------------- BI_RLE --------------------
 
-const pal4rle = await Deno.readFile("./tests/decode/images/good/pal4rle.bmp");
-runBench("BI_RLE__pal4", pal4rle);
+const pal4rle = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/pal4rle.bmp");
+runBench("BI_RLE: 4 bit", pal4rle);
 
-const pal8rle = await Deno.readFile("./tests/decode/images/good/pal8rle.bmp");
-runBench("BI_RLE__pal8", pal8rle);
+const pal8rle = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/pal8rle.bmp");
+runBench("BI_RLE: 8 bit", pal8rle);
 
 // -------------------- BI_BITFIELDS --------------------
 
-const rgb16bfdef = await Deno.readFile("./tests/decode/images/good/rgb16bfdef.bmp");
-runBench("BI_BITFIELDS__rgb16", rgb16bfdef);
+const rgb16bfdef = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/rgb16bfdef.bmp");
+runBench("BI_BITFIELDS: 16 bit", rgb16bfdef);
 
-const rgb32bfdef = await Deno.readFile("./tests/decode/images/good/rgb32bfdef.bmp");
-runBench("BI_BITFIELDS__rgb32", rgb32bfdef);
+const rgb32bfdef = await Deno.readFile("./tests/decode/bmpsuite-2.8/g/rgb32bfdef.bmp");
+runBench("BI_BITFIELDS: 32 bit", rgb32bfdef);

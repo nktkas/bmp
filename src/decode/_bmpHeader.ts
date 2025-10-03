@@ -22,13 +22,13 @@ export interface BITMAPCOREHEADER {
   bcHeight: number;
   /** Number of color planes, must be 1 */
   bcPlanes: number;
-  /** Bits per pixel: 1, 4, 8, or 24 */
+  /** Bits per pixel */
   bcBitCount: number;
 }
 
-/** OS/2 2.x bitmap header (64 bytes). */
+/** OS/2 2.x bitmap header (16 or 64 bytes). */
 export interface OS22XBITMAPHEADER {
-  /** Size of this header in bytes (64) */
+  /** Size of this header in bytes (16 or 64) */
   biSize: number;
   /** Image width in pixels */
   biWidth: number;
@@ -78,7 +78,7 @@ export interface BITMAPINFOHEADER {
   biHeight: number;
   /** Number of color planes, must be 1 */
   biPlanes: number;
-  /** Bits per pixel: 1 (monochrome), 4 (16 colors), 8 (256 colors), 16 (65536 colors), 24 (16M colors), 32 (16M + alpha) */
+  /** Bits per pixel */
   biBitCount: number;
   /** Compression method: 0=BI_RGB (none), 1=BI_RLE8 (8-bit RLE), 2=BI_RLE4 (4-bit RLE), 3=BI_BITFIELDS (RGB masks), 4=BI_JPEG, 5=BI_PNG */
   biCompression: number;
@@ -97,23 +97,17 @@ export interface BITMAPINFOHEADER {
 /** BMP V2 header (52 bytes). */
 export interface BITMAPV2INFOHEADER extends BITMAPINFOHEADER {
   /** Bit mask for red channel */
-  bV2RedMask: number;
+  biRedMask: number;
   /** Bit mask for green channel */
-  bV2GreenMask: number;
+  biGreenMask: number;
   /** Bit mask for blue channel */
-  bV2BlueMask: number;
+  biBlueMask: number;
 }
 
 /** BMP V3 header (56 bytes). */
-export interface BITMAPV3INFOHEADER extends BITMAPINFOHEADER {
-  /** Bit mask for red channel */
-  bV3RedMask: number;
-  /** Bit mask for green channel */
-  bV3GreenMask: number;
-  /** Bit mask for blue channel */
-  bV3BlueMask: number;
+export interface BITMAPV3INFOHEADER extends BITMAPV2INFOHEADER {
   /** Bit mask for alpha channel */
-  bV3AlphaMask: number;
+  biAlphaMask: number;
 }
 
 /** BMP V4 header (108 bytes). */
@@ -177,11 +171,6 @@ export function isBITMAPCOREHEADER(header: BMPHeader["infoHeader"]): header is B
   return "bcSize" in header && header.bcSize === 12;
 }
 
-/** Type guard to check if header is OS22XBITMAPHEADER */
-export function isOS22XBITMAPHEADER(header: BMPHeader["infoHeader"]): header is OS22XBITMAPHEADER {
-  return "biSize" in header && header.biSize === 64;
-}
-
 /** Helper to get normalized BITMAPINFOHEADER from various header types */
 export function getNormalizedHeaderInfo(
   header: BMPHeader["infoHeader"],
@@ -239,7 +228,7 @@ export function parseBMPHeader(data: Uint8Array): BMPHeader {
     | BITMAPV4HEADER
     | BITMAPV5HEADER;
 
-  // BITMAPCOREHEADER (OS/2 1.x)
+  // BITMAPCOREHEADER
   if (headerSize === 12) {
     infoHeader = {
       bcSize: headerSize,
@@ -248,8 +237,175 @@ export function parseBMPHeader(data: Uint8Array): BMPHeader {
       bcPlanes: view.getUint16(22, true),
       bcBitCount: view.getUint16(24, true),
     };
-  } // OS22XBITMAPHEADER (OS/2 2.x)
-  else if (headerSize === 64) {
+  } else if (headerSize === 16 || headerSize === 64) { // OS22XBITMAPHEADER
+    infoHeader = {
+      biSize: headerSize,
+      biWidth: view.getInt32(18, true),
+      biHeight: view.getInt32(22, true),
+      biPlanes: view.getUint16(26, true),
+      biBitCount: view.getUint16(28, true),
+      biCompression: 0,
+      biSizeImage: 0,
+      biXPelsPerMeter: 0,
+      biYPelsPerMeter: 0,
+      biClrUsed: 0,
+      biClrImportant: 0,
+      biUnits: 0,
+      biReserved: 0,
+      biRecording: 0,
+      biRendering: 0,
+      biSize1: 0,
+      biSize2: 0,
+      biColorEncoding: 0,
+      biIdentifier: 0,
+    };
+    if (headerSize === 64) {
+      infoHeader = {
+        ...infoHeader,
+        biCompression: view.getUint32(30, true),
+        biSizeImage: view.getUint32(34, true),
+        biXPelsPerMeter: view.getInt32(38, true),
+        biYPelsPerMeter: view.getInt32(42, true),
+        biClrUsed: view.getUint32(46, true),
+        biClrImportant: view.getUint32(50, true),
+        biUnits: view.getUint16(54, true),
+        biReserved: view.getUint16(56, true),
+        biRecording: view.getUint16(58, true),
+        biRendering: view.getUint16(60, true),
+        biSize1: view.getUint32(62, true),
+        biSize2: view.getUint32(66, true),
+        biColorEncoding: view.getUint32(70, true),
+        biIdentifier: view.getUint32(74, true),
+      };
+    }
+  } else if (headerSize === 52) { // BITMAPV2INFOHEADER
+    infoHeader = {
+      // BITMAPINFOHEADER
+      biSize: headerSize,
+      biWidth: view.getInt32(18, true),
+      biHeight: view.getInt32(22, true),
+      biPlanes: view.getUint16(26, true),
+      biBitCount: view.getUint16(28, true),
+      biCompression: view.getUint32(30, true),
+      biSizeImage: view.getUint32(34, true),
+      biXPelsPerMeter: view.getInt32(38, true),
+      biYPelsPerMeter: view.getInt32(42, true),
+      biClrUsed: view.getUint32(46, true),
+      biClrImportant: view.getUint32(50, true),
+      // BITMAPV2INFOHEADER
+      biRedMask: view.getUint32(54, true),
+      biGreenMask: view.getUint32(58, true),
+      biBlueMask: view.getUint32(62, true),
+    };
+  } else if (headerSize === 56) { // BITMAPV3INFOHEADER
+    infoHeader = {
+      // BITMAPINFOHEADER
+      biSize: headerSize,
+      biWidth: view.getInt32(18, true),
+      biHeight: view.getInt32(22, true),
+      biPlanes: view.getUint16(26, true),
+      biBitCount: view.getUint16(28, true),
+      biCompression: view.getUint32(30, true),
+      biSizeImage: view.getUint32(34, true),
+      biXPelsPerMeter: view.getInt32(38, true),
+      biYPelsPerMeter: view.getInt32(42, true),
+      biClrUsed: view.getUint32(46, true),
+      biClrImportant: view.getUint32(50, true),
+      // BITMAPV2INFOHEADER
+      biRedMask: view.getUint32(54, true),
+      biGreenMask: view.getUint32(58, true),
+      biBlueMask: view.getUint32(62, true),
+      // BITMAPV3INFOHEADER
+      biAlphaMask: view.getUint32(66, true),
+    };
+  } else if (headerSize === 108) { // BITMAPV4HEADER
+    infoHeader = {
+      // BITMAPINFOHEADER
+      biSize: headerSize,
+      biWidth: view.getInt32(18, true),
+      biHeight: view.getInt32(22, true),
+      biPlanes: view.getUint16(26, true),
+      biBitCount: view.getUint16(28, true),
+      biCompression: view.getUint32(30, true),
+      biSizeImage: view.getUint32(34, true),
+      biXPelsPerMeter: view.getInt32(38, true),
+      biYPelsPerMeter: view.getInt32(42, true),
+      biClrUsed: view.getUint32(46, true),
+      biClrImportant: view.getUint32(50, true),
+      // BITMAPV4HEADER
+      bV4RedMask: view.getUint32(54, true),
+      bV4GreenMask: view.getUint32(58, true),
+      bV4BlueMask: view.getUint32(62, true),
+      bV4AlphaMask: view.getUint32(66, true),
+      bV4CSType: view.getUint32(70, true),
+      bV4Endpoints: {
+        ciexyzRed: {
+          ciexyzX: view.getInt32(74, true),
+          ciexyzY: view.getInt32(78, true),
+          ciexyzZ: view.getInt32(82, true),
+        },
+        ciexyzGreen: {
+          ciexyzX: view.getInt32(86, true),
+          ciexyzY: view.getInt32(90, true),
+          ciexyzZ: view.getInt32(94, true),
+        },
+        ciexyzBlue: {
+          ciexyzX: view.getInt32(98, true),
+          ciexyzY: view.getInt32(102, true),
+          ciexyzZ: view.getInt32(106, true),
+        },
+      },
+      bV4GammaRed: view.getUint32(110, true),
+      bV4GammaGreen: view.getUint32(114, true),
+      bV4GammaBlue: view.getUint32(118, true),
+    };
+  } else if (headerSize === 124) { // BITMAPV5HEADER
+    infoHeader = {
+      // BITMAPINFOHEADER
+      biSize: headerSize,
+      biWidth: view.getInt32(18, true),
+      biHeight: view.getInt32(22, true),
+      biPlanes: view.getUint16(26, true),
+      biBitCount: view.getUint16(28, true),
+      biCompression: view.getUint32(30, true),
+      biSizeImage: view.getUint32(34, true),
+      biXPelsPerMeter: view.getInt32(38, true),
+      biYPelsPerMeter: view.getInt32(42, true),
+      biClrUsed: view.getUint32(46, true),
+      biClrImportant: view.getUint32(50, true),
+      // BITMAPV4HEADER
+      bV4RedMask: view.getUint32(54, true),
+      bV4GreenMask: view.getUint32(58, true),
+      bV4BlueMask: view.getUint32(62, true),
+      bV4AlphaMask: view.getUint32(66, true),
+      bV4CSType: view.getUint32(70, true),
+      bV4Endpoints: {
+        ciexyzRed: {
+          ciexyzX: view.getInt32(74, true),
+          ciexyzY: view.getInt32(78, true),
+          ciexyzZ: view.getInt32(82, true),
+        },
+        ciexyzGreen: {
+          ciexyzX: view.getInt32(86, true),
+          ciexyzY: view.getInt32(90, true),
+          ciexyzZ: view.getInt32(94, true),
+        },
+        ciexyzBlue: {
+          ciexyzX: view.getInt32(98, true),
+          ciexyzY: view.getInt32(102, true),
+          ciexyzZ: view.getInt32(106, true),
+        },
+      },
+      bV4GammaRed: view.getUint32(110, true),
+      bV4GammaGreen: view.getUint32(114, true),
+      bV4GammaBlue: view.getUint32(118, true),
+      // BITMAPV5HEADER
+      bV5Intent: view.getUint32(122, true),
+      bV5ProfileData: view.getUint32(126, true),
+      bV5ProfileSize: view.getUint32(130, true),
+      bV5Reserved: view.getUint32(134, true),
+    };
+  } else if (headerSize >= 40) { // BITMAPINFOHEADER or any larger header
     infoHeader = {
       biSize: headerSize,
       biWidth: view.getInt32(18, true),
@@ -262,97 +418,9 @@ export function parseBMPHeader(data: Uint8Array): BMPHeader {
       biYPelsPerMeter: view.getInt32(42, true),
       biClrUsed: view.getUint32(46, true),
       biClrImportant: view.getUint32(50, true),
-      biUnits: view.getUint16(54, true),
-      biReserved: view.getUint16(56, true),
-      biRecording: view.getUint16(58, true),
-      biRendering: view.getUint16(60, true),
-      biSize1: view.getUint32(62, true),
-      biSize2: view.getUint32(66, true),
-      biColorEncoding: view.getUint32(70, true),
-      biIdentifier: view.getUint32(74, true),
     };
-  } // Windows formats
-  else {
-    // BITMAPINFOHEADER
-    const baseInfoHeader: BITMAPINFOHEADER = {
-      biSize: headerSize,
-      biWidth: view.getInt32(18, true),
-      biHeight: view.getInt32(22, true),
-      biPlanes: view.getUint16(26, true),
-      biBitCount: view.getUint16(28, true),
-      biCompression: view.getUint32(30, true),
-      biSizeImage: view.getUint32(34, true),
-      biXPelsPerMeter: view.getInt32(38, true),
-      biYPelsPerMeter: view.getInt32(42, true),
-      biClrUsed: view.getUint32(46, true),
-      biClrImportant: view.getUint32(50, true),
-    };
-
-    infoHeader = baseInfoHeader;
-
-    // BITMAPV2INFOHEADER
-    if (headerSize === 52) {
-      const v2Header: BITMAPV2INFOHEADER = {
-        ...baseInfoHeader,
-        bV2RedMask: view.getUint32(54, true),
-        bV2GreenMask: view.getUint32(58, true),
-        bV2BlueMask: view.getUint32(62, true),
-      };
-      infoHeader = v2Header;
-    } // BITMAPV3INFOHEADER
-    else if (headerSize === 56) {
-      const v3Header: BITMAPV3INFOHEADER = {
-        ...baseInfoHeader,
-        bV3RedMask: view.getUint32(54, true),
-        bV3GreenMask: view.getUint32(58, true),
-        bV3BlueMask: view.getUint32(62, true),
-        bV3AlphaMask: view.getUint32(66, true),
-      };
-      infoHeader = v3Header;
-    } // BITMAPV4HEADER
-    else if (headerSize >= 108) {
-      const v4Header: BITMAPV4HEADER = {
-        ...baseInfoHeader,
-        bV4RedMask: view.getUint32(54, true),
-        bV4GreenMask: view.getUint32(58, true),
-        bV4BlueMask: view.getUint32(62, true),
-        bV4AlphaMask: view.getUint32(66, true),
-        bV4CSType: view.getUint32(70, true),
-        bV4Endpoints: {
-          ciexyzRed: {
-            ciexyzX: view.getInt32(74, true),
-            ciexyzY: view.getInt32(78, true),
-            ciexyzZ: view.getInt32(82, true),
-          },
-          ciexyzGreen: {
-            ciexyzX: view.getInt32(86, true),
-            ciexyzY: view.getInt32(90, true),
-            ciexyzZ: view.getInt32(94, true),
-          },
-          ciexyzBlue: {
-            ciexyzX: view.getInt32(98, true),
-            ciexyzY: view.getInt32(102, true),
-            ciexyzZ: view.getInt32(106, true),
-          },
-        },
-        bV4GammaRed: view.getUint32(110, true),
-        bV4GammaGreen: view.getUint32(114, true),
-        bV4GammaBlue: view.getUint32(118, true),
-      };
-      infoHeader = v4Header;
-
-      // BITMAPV5HEADER
-      if (headerSize >= 124) {
-        const v5Header: BITMAPV5HEADER = {
-          ...v4Header,
-          bV5Intent: view.getUint32(122, true),
-          bV5ProfileData: view.getUint32(126, true),
-          bV5ProfileSize: view.getUint32(130, true),
-          bV5Reserved: view.getUint32(134, true),
-        };
-        infoHeader = v5Header;
-      }
-    }
+  } else {
+    throw new Error(`Unsupported BMP header size: ${headerSize} bytes`);
   }
 
   return { fileHeader, infoHeader };

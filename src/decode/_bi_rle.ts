@@ -1,55 +1,46 @@
 import type { RGBImageData } from "./mod.ts";
 import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
-import { parseColorTable } from "./_colorTable.ts";
+import { extractColorTable } from "./_colorTable.ts";
 
 /**
  * Converts a BMP with RLE compression to an raw RGB image
  * @param bmp The BMP array to convert
- * @param header Optional pre-parsed BMP header (to avoid re-parsing)
+ * @param header Parsed BMP header
  * @returns The raw RGB image data and metadata
  */
 export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData {
+  // 0. Get header data
   const { biWidth, biHeight } = getNormalizedHeaderInfo(header.infoHeader);
 
-  // Handle image orientation
+  // 1. Calculate image dimensions and orientation
+  const absWidth = Math.abs(biWidth);
   const absHeight = Math.abs(biHeight);
   const isTopDown = biHeight < 0;
 
-  // Parse color table
-  const palette = parseColorTable(bmp, header.infoHeader);
-
-  // Decompress RLE data to raw palette indices
+  // 2. Extract color palette and decompress RLE data
+  const palette = extractColorTable(bmp, header)!;
   const paletteIndices = decompressionRLE(bmp, header);
 
-  // Create output buffer
-  const output = new Uint8Array(biWidth * absHeight * 3);
+  // 3. Allocate output buffer
+  const output = new Uint8Array(absWidth * absHeight * 3);
 
-  // Process each row
+  // 4. Process pixels (palette indices to RGB)
+  const rowStride = absWidth * 3;
   for (let y = 0; y < absHeight; y++) {
-    // Determine source row based on image orientation
     const srcY = isTopDown ? y : (absHeight - 1 - y);
+    let srcPos = srcY * absWidth;
+    let dstPos = y * rowStride;
 
-    // Calculate row offset
-    const dstRowOffset = y * biWidth * 3;
-
-    // Process each pixel in the row
-    for (let x = 0; x < biWidth; x++) {
-      // Get color from palette
-      const colorIndex = paletteIndices[srcY * biWidth + x];
-      const r = palette![colorIndex].rgbRed;
-      const g = palette![colorIndex].rgbGreen;
-      const b = palette![colorIndex].rgbBlue;
-
-      // Write pixel to output buffer in RGB format (RLE not supporting alpha)
-      const dstOffset = dstRowOffset + x * 3;
-      output[dstOffset] = r;
-      output[dstOffset + 1] = g;
-      output[dstOffset + 2] = b;
+    for (let x = 0; x < absWidth; x++) {
+      const color = palette[paletteIndices[srcPos++]];
+      output[dstPos++] = color.rgbRed;
+      output[dstPos++] = color.rgbGreen;
+      output[dstPos++] = color.rgbBlue;
     }
   }
 
   return {
-    width: biWidth,
+    width: absWidth,
     height: absHeight,
     channels: 3,
     data: output,
@@ -63,22 +54,23 @@ export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData 
  * - count>0: encoded mode (repeat value count times)
  */
 function decompressionRLE(bmp: Uint8Array, header: BMPHeader): Uint8Array {
+  // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biCompression } = getNormalizedHeaderInfo(header.infoHeader);
 
-  // Validate compression type: 1=RLE8, 2=RLE4
   if (biCompression !== 1 && biCompression !== 2) {
     throw new Error("Image is not RLE compressed");
   }
 
-  // Handle image orientation
+  // 1. Calculate image dimensions and orientation
+  const absWidth = Math.abs(biWidth);
   const absHeight = Math.abs(biHeight);
   const isTopDown = biHeight < 0;
 
-  // Output buffer stores palette indices (not RGB values)
-  const pixels = new Uint8Array(biWidth * absHeight);
+  // 2. Allocate output buffer (stores palette indices, not RGB values)
+  const pixels = new Uint8Array(absWidth * absHeight);
 
-  // Cursor position in the output image
+  // 3. Decode RLE stream
   let x = 0;
   let y = isTopDown ? 0 : absHeight - 1;
   let i = bfOffBits; // Read position in compressed data
@@ -87,71 +79,72 @@ function decompressionRLE(bmp: Uint8Array, header: BMPHeader): Uint8Array {
     const count = bmp[i++];
     const byte = bmp[i++];
 
-    if (count === 0) { // Escape codes
+    if (count === 0) {
+      // Escape codes
       switch (byte) {
         case 0: { // End of line
-          // Move to the start of the next line
           x = 0;
           y += isTopDown ? 1 : -1;
           break;
         }
         case 1: { // End of bitmap
-          // Finished decoding
           return pixels;
         }
-        case 2: { // Delta
-          // Skip pixels
+        case 2: { // Delta (skip pixels)
           x += bmp[i++];
           y += bmp[i++] * (isTopDown ? 1 : -1);
           break;
         }
-        default: { // Absolute mode: copy uncompressed pixels
-          // Calculate target row (flip for bottom-up images)
+        default: { // Absolute mode (uncompressed pixels)
           const row = isTopDown ? y : absHeight - 1 - y;
-          const rowOffset = row * biWidth;
+          let pos = row * absWidth + x;
 
-          if (biCompression === 1) { // RLE8
-            // Direct byte copy
+          if (biCompression === 1) {
+            // RLE8: direct byte copy
             for (let j = 0; j < byte; j++) {
-              pixels[rowOffset + x + j] = bmp[i + j];
+              pixels[pos++] = bmp[i++];
             }
-            i += byte;
             x += byte;
-            if (byte & 1) i++; // Skip padding byte if odd byte count
-          } else { // RLE4
-            // Unpack nibbles (2 pixels per byte)
-            for (let j = 0; j < byte; j++) {
-              const byteIndex = j >> 1;
-              const sourceByte = bmp[i + byteIndex];
-              pixels[rowOffset + x + j] = (j & 1)
-                ? (sourceByte & 0xF) // low nibble
-                : ((sourceByte >> 4) & 0xF); // high nibble
+
+            if (byte & 1) i++; // Skip padding byte if odd count
+          } else {
+            // RLE4: unpack nibbles (2 pixels per byte)
+            const pairs = byte >> 1;
+            for (let j = 0; j < pairs; j++) {
+              const sourceByte = bmp[i++];
+              pixels[pos++] = (sourceByte >> 4) & 0xF; // High nibble
+              pixels[pos++] = sourceByte & 0xF; // Low nibble
             }
+            if (byte & 1) pixels[pos] = (bmp[i++] >> 4) & 0xF; // Last odd nibble
+            x += byte;
+
             const bytesUsed = (byte + 1) >> 1;
-            i += bytesUsed;
-            x += byte;
-            if (bytesUsed & 1) i++; // Skip padding byte if odd byte count
+            if (bytesUsed & 1) i++; // Skip padding byte if odd count
           }
         }
       }
-    } else { // Encoded mode: repeat value
-      // Calculate target row (flip for bottom-up images)
+    } else {
+      // Encoded mode (repeat value)
       const row = isTopDown ? y : absHeight - 1 - y;
-      const rowOffset = row * biWidth;
+      let pos = row * absWidth + x;
 
-      if (biCompression === 1) { // RLE8
-        // Repeat single byte
+      if (biCompression === 1) {
+        // RLE8: repeat single byte
         for (let j = 0; j < count; j++) {
-          pixels[rowOffset + x + j] = byte;
+          pixels[pos++] = byte;
         }
         x += count;
-      } else { // RLE4
-        // Repeat nibbles (2 pixels per byte)
+      } else {
+        // RLE4: repeat nibbles (2 pixels per byte)
         const highNibble = (byte >> 4) & 0xF;
         const lowNibble = byte & 0xF;
-        for (let j = 0; j < count; j++) {
-          pixels[rowOffset + x + j] = (j & 1) ? lowNibble : highNibble;
+        const pairs = count >> 1;
+        for (let j = 0; j < pairs; j++) {
+          pixels[pos++] = highNibble;
+          pixels[pos++] = lowNibble;
         }
+        if (count & 1) pixels[pos] = highNibble;
+
         x += count;
       }
     }
