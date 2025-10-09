@@ -2,6 +2,7 @@ import { getNormalizedHeaderInfo, parseBMPHeader } from "./_bmpHeader.ts";
 import { BI_RGB_TO_RAW } from "./_bi_rgb.ts";
 import { BI_RLE_TO_RAW } from "./_bi_rle.ts";
 import { BI_BITFIELDS_TO_RAW } from "./_bi_bitfields.ts";
+import { BI_HUFFMAN_TO_RAW } from "./_bi_huffman.ts";
 
 /** Represents an RGB(A) image data */
 export interface RGBImageData {
@@ -62,6 +63,9 @@ export function decode(bmp: Uint8Array): RGBImageData {
   }
   if (biCompression === 1 || biCompression === 2 || (biCompression === 4 && biBitCount === 24)) {
     return BI_RLE_TO_RAW(bmp, header);
+  }
+  if (biCompression === 3 && biBitCount === 1) {
+    return BI_HUFFMAN_TO_RAW(bmp, header);
   }
   if (biCompression === 3 || biCompression === 6) {
     return BI_BITFIELDS_TO_RAW(bmp, header);
