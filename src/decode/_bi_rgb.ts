@@ -1,4 +1,4 @@
-import type { DecodeOptions, RGBImageData } from "./mod.ts";
+import type { RGBImageData } from "./mod.ts";
 import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
 import { extractColorTable } from "./_colorTable.ts";
 
@@ -8,7 +8,7 @@ import { extractColorTable } from "./_colorTable.ts";
  * @param header Parsed BMP header
  * @returns The raw RGB(A) image data and metadata
  */
-export function BI_RGB_TO_RAW(bmp: Uint8Array, header: BMPHeader, options?: DecodeOptions): RGBImageData {
+export function BI_RGB_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData {
   // 0. Get header info and validate
   const { biBitCount, biCompression } = getNormalizedHeaderInfo(header.infoHeader);
 
@@ -30,7 +30,7 @@ export function BI_RGB_TO_RAW(bmp: Uint8Array, header: BMPHeader, options?: Deco
   } else if (biBitCount === 24) {
     return decode24Bit(bmp, header);
   } else if (biBitCount === 32) {
-    return decode32Bit(bmp, header, options?.removeEmptyAlpha ?? true);
+    return decode32Bit(bmp, header);
   } else if (biBitCount === 64) {
     return decode64Bit(bmp, header);
   } else {
@@ -303,7 +303,7 @@ function decode24Bit(bmp: Uint8Array, header: BMPHeader): RGBImageData {
 }
 
 /** Decode 32 bits per pixel (BGRA) */
-function decode32Bit(bmp: Uint8Array, header: BMPHeader, removeEmptyAlpha: boolean = true): RGBImageData {
+function decode32Bit(bmp: Uint8Array, header: BMPHeader): RGBImageData {
   // 0. Get header data
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biBitCount } = getNormalizedHeaderInfo(header.infoHeader);
@@ -316,69 +316,62 @@ function decode32Bit(bmp: Uint8Array, header: BMPHeader, removeEmptyAlpha: boole
   // 2. Calculate row stride
   const stride = Math.ceil((biBitCount * absWidth) / 32) * 4;
 
-  // 3. Allocate output buffer
-  let output = new Uint8Array(absWidth * absHeight * 4);
-
-  // 4. Process pixels (BGRA to RGBA)
+  // 3. Check if alpha channel is present (scan all alpha bytes first)
+  let hasAlpha = false;
   for (let y = 0; y < absHeight; y++) {
     const srcY = isTopDown ? y : (absHeight - 1 - y);
-    let srcOffset = bfOffBits + srcY * stride;
-    let dstOffset = y * absWidth * 4;
+    let srcOffset = bfOffBits + srcY * stride + 3; // Start at alpha byte
 
     for (let x = 0; x < absWidth; x++) {
-      // Convert BGRA to RGBA
-      const r = bmp[srcOffset + 2];
-      const g = bmp[srcOffset + 1];
-      const b = bmp[srcOffset];
-      const a = bmp[srcOffset + 3];
-
-      output[dstOffset++] = r;
-      output[dstOffset++] = g;
-      output[dstOffset++] = b;
-      output[dstOffset++] = a;
-
+      if (bmp[srcOffset] !== 0) {
+        hasAlpha = true;
+        break;
+      }
       srcOffset += 4;
     }
+    if (hasAlpha) break;
   }
 
-  // 4. Check alpha channel and optionally remove if empty
-  // In BI_RGB 32-bit, 4th byte is reserved (default 0), but often contains alpha
-  let hasAlpha = true;
-  if (removeEmptyAlpha) {
-    hasAlpha = hasNonZeroAlpha(output);
-    if (!hasAlpha) {
-      output = removeAlpha(output, absWidth, absHeight);
+  // 4. Allocate output buffer based on alpha presence
+  const channels = hasAlpha ? 4 : 3;
+  const output = new Uint8Array(absWidth * absHeight * channels);
+
+  // 5. Process pixels (BGRA to RGB(A))
+  if (hasAlpha) {
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      let srcOffset = bfOffBits + srcY * stride;
+      let dstOffset = y * absWidth * 4;
+
+      for (let x = 0; x < absWidth; x++) {
+        output[dstOffset++] = bmp[srcOffset + 2]; // R
+        output[dstOffset++] = bmp[srcOffset + 1]; // G
+        output[dstOffset++] = bmp[srcOffset]; // B
+        output[dstOffset++] = bmp[srcOffset + 3]; // A
+        srcOffset += 4;
+      }
+    }
+  } else {
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      let srcOffset = bfOffBits + srcY * stride;
+      let dstOffset = y * absWidth * 3;
+
+      for (let x = 0; x < absWidth; x++) {
+        output[dstOffset++] = bmp[srcOffset + 2]; // R
+        output[dstOffset++] = bmp[srcOffset + 1]; // G
+        output[dstOffset++] = bmp[srcOffset]; // B
+        srcOffset += 4;
+      }
     }
   }
 
   return {
     width: absWidth,
     height: absHeight,
-    channels: hasAlpha ? 4 : 3,
+    channels: channels,
     data: output,
   };
-}
-
-/** Check if image has non-zero alpha values */
-function hasNonZeroAlpha(data: Uint8Array): boolean {
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] !== 0) return true;
-  }
-  return false;
-}
-
-/** Remove alpha channel from RGBA data */
-function removeAlpha(data: Uint8Array<ArrayBuffer>, width: number, height: number): Uint8Array<ArrayBuffer> {
-  if (data.length !== width * height * 4) return data; // not RGBA data
-
-  const output = new Uint8Array(width * height * 3);
-  for (let i = 0, dstIdx = 0, srcIdx = 0; i < width * height; i++) {
-    output[dstIdx++] = data[srcIdx++]; // R
-    output[dstIdx++] = data[srcIdx++]; // G
-    output[dstIdx++] = data[srcIdx++]; // B
-    srcIdx++;
-  }
-  return output;
 }
 
 /** Decode 64 bits per pixel (16-bit BGRA s2.13 float, linear to sRGB) */

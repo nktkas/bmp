@@ -11,7 +11,7 @@ import { Buffer } from "node:buffer";
 // -------------------- Configuration --------------------
 
 const LIB_DECODERS: Record<string, (buf: Uint8Array<ArrayBuffer>) => unknown> = {
-  "@nktkas/bmp": (data) => nktkas_bmp.decode(data, { removeEmptyAlpha: false }),
+  "@nktkas/bmp": (data) => nktkas_bmp.decode(data),
   "@cwasm/nsbmp": nsbmp.decode,
   "fast-bmp": fast_bmp.decode,
   "bmp-ts": (data) => bmp_ts.decode(Buffer.from(data)),

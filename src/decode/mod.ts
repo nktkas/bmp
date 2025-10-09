@@ -3,17 +3,6 @@ import { BI_RGB_TO_RAW } from "./_bi_rgb.ts";
 import { BI_RLE_TO_RAW } from "./_bi_rle.ts";
 import { BI_BITFIELDS_TO_RAW } from "./_bi_bitfields.ts";
 
-/** Options for decoding a BMP image. */
-export interface DecodeOptions {
-  /**
-   * Specifies whether to remove the alpha channel after decompressing a 32-bit image in BI_RGB compression if it's fully opaque.
-   * Exists for compatibility with other decoders.
-   * Strongly affects performance.
-   * @default true
-   */
-  removeEmptyAlpha?: boolean;
-}
-
 /** Represents an RGB(A) image data */
 export interface RGBImageData {
   /** Width of the image in pixels */
@@ -64,13 +53,13 @@ export interface RGBImageData {
  * // { width: 1, height: 1, channels: 3, data: Uint8Array(3) [0, 0, 0] }
  * ```
  */
-export function decode(bmp: Uint8Array, options?: DecodeOptions): RGBImageData {
+export function decode(bmp: Uint8Array): RGBImageData {
   const header = parseBMPHeader(bmp);
   const { biCompression } = getNormalizedHeaderInfo(header.infoHeader);
 
   switch (biCompression) {
     case 0:
-      return BI_RGB_TO_RAW(bmp, header, options);
+      return BI_RGB_TO_RAW(bmp, header);
     case 1:
     case 2:
       return BI_RLE_TO_RAW(bmp, header);
