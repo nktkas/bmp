@@ -55,25 +55,29 @@ export interface RGBImageData {
  */
 export function decode(bmp: Uint8Array): RGBImageData {
   const header = parseBMPHeader(bmp);
-  const { biCompression } = getNormalizedHeaderInfo(header.infoHeader);
+  const { biCompression, biBitCount } = getNormalizedHeaderInfo(header.infoHeader);
 
-  switch (biCompression) {
-    case 0:
-      return BI_RGB_TO_RAW(bmp, header);
-    case 1:
-    case 2:
-      return BI_RLE_TO_RAW(bmp, header);
-    case 3:
-    case 6:
-      return BI_BITFIELDS_TO_RAW(bmp, header);
-    case 4:
-    case 5:
-      throw new Error(
-        `Unsupported compression type: ${biCompression} (JPEG/PNG in BMP). Use "extractCompressedData" to extract the embedded image.`,
-      );
-    default:
-      throw new Error(`Unsupported compression type: ${biCompression}`);
+  if (biCompression === 0) {
+    return BI_RGB_TO_RAW(bmp, header);
   }
+  if (biCompression === 1 || biCompression === 2 || (biCompression === 4 && biBitCount === 24)) {
+    return BI_RLE_TO_RAW(bmp, header);
+  }
+  if (biCompression === 3 || biCompression === 6) {
+    return BI_BITFIELDS_TO_RAW(bmp, header);
+  }
+
+  if (biCompression === 4) {
+    throw new Error(
+      `Unsupported compression type: ${biCompression} (JPEG in BMP). Use "extractCompressedData" to extract the embedded image.`,
+    );
+  }
+  if (biCompression === 5) {
+    throw new Error(
+      `Unsupported compression type: ${biCompression} (PNG in BMP). Use "extractCompressedData" to extract the embedded image.`,
+    );
+  }
+  throw new Error(`Unsupported compression type: ${biCompression}`);
 }
 
 export { type CompressedImage, extractCompressedData } from "./_extractData.ts";
