@@ -1,4 +1,4 @@
-import type { RGBImageData } from "./mod.ts";
+import type { RawImageData } from "./mod.ts";
 import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
 import { extractColorTable } from "./_colorTable.ts";
 
@@ -201,12 +201,12 @@ const BLACK_MAKEUP: { [key: string]: number } = {
 const EOL = "000000000001"; // End of line marker
 
 /**
- * Converts a BMP with Modified Huffman (OS/2 Huffman 1D) compression to raw RGB image
+ * Converts a BMP with Modified Huffman (OS/2 Huffman 1D) compression to a raw pixel image data
  * @param bmp The BMP array to convert
  * @param header Parsed BMP header
- * @returns The raw RGB image data and metadata
+ * @returns The raw pixel image data (width, height, channels, data)
  */
-export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData {
+export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
   // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biBitCount, biCompression } = getNormalizedHeaderInfo(header.infoHeader);
@@ -240,9 +240,9 @@ export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageD
 
     for (let x = 0; x < absWidth; x++) {
       const color = palette[pixels[srcOffset++]];
-      output[dstOffset++] = color.rgbRed;
-      output[dstOffset++] = color.rgbGreen;
-      output[dstOffset++] = color.rgbBlue;
+      output[dstOffset++] = color.red;
+      output[dstOffset++] = color.green;
+      output[dstOffset++] = color.blue;
     }
   }
 

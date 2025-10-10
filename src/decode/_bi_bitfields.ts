@@ -1,4 +1,4 @@
-import type { RGBImageData } from "./mod.ts";
+import type { RawImageData } from "./mod.ts";
 import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
 
 /** Extracted bit mask information */
@@ -25,13 +25,12 @@ interface ColorScalingLUTs {
 }
 
 /**
- * Converts a BMP with BI_BITFIELDS compression to an raw RGB(A) image
+ * Converts a BMP with BI_BITFIELDS compression to a raw pixel image data
  * @param bmp The BMP array to convert
  * @param header Parsed BMP header
- * @returns The raw RGB(A) image data and metadata
+ * @returns The raw pixel image data (width, height, channels, data)
  */
-
-export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData {
+export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
   // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biBitCount, biCompression } = getNormalizedHeaderInfo(header.infoHeader);

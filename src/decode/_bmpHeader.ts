@@ -80,7 +80,17 @@ export interface BITMAPINFOHEADER {
   biPlanes: number;
   /** Bits per pixel */
   biBitCount: number;
-  /** Compression method: 0=BI_RGB (none), 1=BI_RLE8 (8-bit RLE), 2=BI_RLE4 (4-bit RLE), 3=BI_BITFIELDS (RGB masks), 4=BI_JPEG, 5=BI_PNG */
+  /**
+   * Compression method:
+   * - 0 = BI_RGB (none)
+   * - 1 = BI_RLE8 (8-bit RLE)
+   * - 2 = BI_RLE4 (4-bit RLE)
+   * - 3 = BI_BITFIELDS (RGB masks)
+   * - 4 = BI_JPEG
+   * - 5 = BI_PNG
+   * - 6 = BI_ALPHABITFIELDS (RGBA masks)
+   * - more...
+   */
   biCompression: number;
   /** Size of raw pixel data in bytes, can be 0 for BI_RGB bitmaps */
   biSizeImage: number;
@@ -120,7 +130,14 @@ export interface BITMAPV4HEADER extends BITMAPINFOHEADER {
   bV4BlueMask: number;
   /** Bit mask for alpha channel, e.g., 0xFF000000 for 8-bit alpha in 32-bit pixel */
   bV4AlphaMask: number;
-  /** Color space type: 0=LCS_CALIBRATED_RGB, 'sRGB'=LCS_sRGB, 'Win '=LCS_WINDOWS_COLOR_SPACE, 'LINK'=LCS_PROFILE_LINKED, 'MBED'=LCS_PROFILE_EMBEDDED */
+  /**
+   * Color space type:
+   * - 0x00000000 = LCS_CALIBRATED_RGB
+   * - 0x73524742 = LCS_sRGB
+   * - 0x57696E20 = LCS_WINDOWS_COLOR_SPACE
+   * - 0x4C494E4B = LCS_PROFILE_LINKED
+   * - 0x4D424544 = LCS_PROFILE_EMBEDDED
+   */
   bV4CSType: number;
   /** CIE XYZ endpoints for RGB color space calibration, FXPT2DOT30 fixed-point values */
   bV4Endpoints: {
@@ -141,7 +158,13 @@ export interface BITMAPV4HEADER extends BITMAPINFOHEADER {
 
 /** BMP V5 header (124 bytes). */
 export interface BITMAPV5HEADER extends BITMAPV4HEADER {
-  /** Rendering intent: 1=LCS_GM_BUSINESS (saturation), 2=LCS_GM_GRAPHICS (relative colorimetric), 4=LCS_GM_IMAGES (perceptual), 8=LCS_GM_ABS_COLORIMETRIC */
+  /**
+   * Rendering intent:
+   * - 1 = LCS_GM_BUSINESS (saturation)
+   * - 2 = LCS_GM_GRAPHICS (relative colorimetric)
+   * - 4 = LCS_GM_IMAGES (perceptual)
+   * - 8 = LCS_GM_ABS_COLORIMETRIC
+   */
   bV5Intent: number;
   /** Offset in bytes from beginning of BITMAPV5HEADER to ICC profile data */
   bV5ProfileData: number;
@@ -155,7 +178,7 @@ export interface BITMAPV5HEADER extends BITMAPV4HEADER {
 export interface BMPHeader {
   /** 14-byte file header with file metadata */
   fileHeader: BITMAPFILEHEADER;
-  /** Variable-size DIB header with image format details (12, 40, 52, 56, 64, 108, or 124 bytes) */
+  /** Variable-size DIB header with image format details */
   infoHeader:
     | BITMAPCOREHEADER
     | OS22XBITMAPHEADER
@@ -194,12 +217,12 @@ export function getNormalizedHeaderInfo(
 }
 
 /**
- * Parses BMP file headers from raw byte array
+ * Reads BMP file headers
  * @param data Raw BMP file data as Uint8Array
  * @returns Parsed header structure with appropriate version
  * @throws {Error} If file signature is not 0x4D42 ("BM")
  */
-export function parseBMPHeader(data: Uint8Array): BMPHeader {
+export function readBMPHeader(data: Uint8Array): BMPHeader {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   // BITMAPFILEHEADER

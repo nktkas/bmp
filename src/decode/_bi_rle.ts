@@ -1,14 +1,14 @@
-import type { RGBImageData } from "./mod.ts";
+import type { RawImageData } from "./mod.ts";
 import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
 import { extractColorTable } from "./_colorTable.ts";
 
 /**
- * Converts a BMP with RLE compression to an raw RGB image
+ * Converts a BMP with RLE compression to a raw pixel image data
  * @param bmp The BMP array to convert
  * @param header Parsed BMP header
- * @returns The raw RGB image data and metadata
+ * @returns The raw pixel image data (width, height, channels, data)
  */
-export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData {
+export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
   // 0. Get header data
   const { biWidth, biHeight, biCompression, biBitCount } = getNormalizedHeaderInfo(header.infoHeader);
 
@@ -62,9 +62,9 @@ export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RGBImageData 
       for (let x = 0; x < absWidth; x++) {
         // Lookup color in palette
         const color = palette[paletteIndices[srcPos++]];
-        output[dstPos++] = color.rgbRed;
-        output[dstPos++] = color.rgbGreen;
-        output[dstPos++] = color.rgbBlue;
+        output[dstPos++] = color.red;
+        output[dstPos++] = color.green;
+        output[dstPos++] = color.blue;
       }
     }
   }

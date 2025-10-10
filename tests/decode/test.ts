@@ -67,36 +67,36 @@ function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
 }
 
 Deno.test('Decode "good" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/decode/bmpsuite-2.8/g")) {
+  for await (const sample of Deno.readDir("./tests/bmpsuite-2.8/g")) {
     if (!sample.name.endsWith(".bmp")) continue;
     await t.step(sample.name, async () => {
-      const bmpBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/g/${sample.name}`);
-      const pngBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/g/${sample.name.replace(/\.bmp$/, ".png")}`);
+      const bmpBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/g/${sample.name}`);
+      const pngBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/g/${sample.name.replace(/\.bmp$/, ".png")}`);
       await compareDecodeResult(bmpBuffer, pngBuffer);
     });
   }
 });
 
 Deno.test('Decode "questionable" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/decode/bmpsuite-2.8/q")) {
+  for await (const sample of Deno.readDir("./tests/bmpsuite-2.8/q")) {
     if (!sample.name.endsWith(".bmp")) continue;
     await t.step(sample.name, async () => {
-      const bmpBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/q/${sample.name}`);
-      const pngBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/q/${sample.name.replace(/\.bmp$/, ".png")}`);
+      const bmpBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/q/${sample.name}`);
+      const pngBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/q/${sample.name.replace(/\.bmp$/, ".png")}`);
       await compareDecodeResult(bmpBuffer, pngBuffer);
     });
   }
 });
 
 Deno.test('Decode "bad" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/decode/bmpsuite-2.8/b")) {
+  for await (const sample of Deno.readDir("./tests/bmpsuite-2.8/b")) {
     if (!sample.name.endsWith(".bmp")) continue;
-    const hasPng = await exists(`./tests/decode/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
+    const hasPng = await exists(`./tests/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
     await t.step({
       name: sample.name,
       fn: async () => {
-        const bmpBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/b/${sample.name}`);
-        const pngBuffer = await Deno.readFile(`./tests/decode/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
+        const bmpBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/b/${sample.name}`);
+        const pngBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
         await compareDecodeResult(bmpBuffer, pngBuffer);
       },
       ignore: !hasPng,

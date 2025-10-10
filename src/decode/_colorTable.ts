@@ -3,13 +3,13 @@ import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
 /** Color palette entry for indexed color BMP images */
 export interface RGBQUAD {
   /** Blue channel intensity (0-255) */
-  rgbBlue: number;
+  blue: number;
   /** Green channel intensity (0-255) */
-  rgbGreen: number;
+  green: number;
   /** Red channel intensity (0-255) */
-  rgbRed: number;
+  red: number;
   /** Reserved field, typically 0 (used for alpha in some variants) */
-  rgbReserved: number;
+  reserved: number;
 }
 
 /**
@@ -44,16 +44,16 @@ export function extractColorTable(bmp: Uint8Array, header: BMPHeader): RGBQUAD[]
   for (let i = 0; i < colorCount; i++) {
     const idx = colorTableOffset + (i * bytesPerEntry);
     table.push({
-      rgbBlue: bmp[idx],
-      rgbGreen: bmp[idx + 1],
-      rgbRed: bmp[idx + 2],
-      rgbReserved: bytesPerEntry === 4 ? bmp[idx + 3] : 0,
+      blue: bmp[idx],
+      green: bmp[idx + 1],
+      red: bmp[idx + 2],
+      reserved: bytesPerEntry === 4 ? bmp[idx + 3] : 0,
     });
   }
 
   // 4. Fill in missing colors
   while (table.length < maxPossibleColors) {
-    table.push({ rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 });
+    table.push({ blue: 0, green: 0, red: 0, reserved: 0 });
   }
 
   return table;
