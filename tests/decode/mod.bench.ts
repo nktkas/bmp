@@ -10,22 +10,97 @@ import { Buffer } from "node:buffer";
 
 // -------------------- Configuration --------------------
 
-const LIB_DECODERS: Record<string, (buf: Uint8Array<ArrayBuffer>) => unknown> = {
-  "@nktkas/bmp": (data) => nktkas_bmp.decode(data),
-  "@cwasm/nsbmp": nsbmp.decode,
-  "fast-bmp": fast_bmp.decode,
-  "bmp-ts": (data) => bmp_ts.decode(Buffer.from(data)),
-  "bmp-js": (data) => bmpjs.decode(Buffer.from(data)),
-  "bmpimagejs": (data) => bmpimagejs.decode(data.buffer),
+interface DecoderConfig {
+  decode: (buf: Uint8Array<ArrayBuffer>) => unknown;
+  // only those bmp formats that are correctly decoded
+  supportedGroups: string[];
+}
+
+const LIB_DECODERS: Record<string, DecoderConfig> = {
+  "@nktkas/bmp": {
+    decode: (data) => nktkas_bmp.decode(data),
+    supportedGroups: [
+      "BI_RGB: 1 bit",
+      "BI_RGB: 4 bit",
+      "BI_RGB: 8 bit",
+      "BI_RGB: 16 bit",
+      "BI_RGB: 24 bit",
+      "BI_RGB: 32 bit",
+      "BI_RLE: 4 bit",
+      "BI_RLE: 8 bit",
+      "BI_BITFIELDS: 16 bit",
+      "BI_BITFIELDS: 32 bit",
+    ],
+  },
+  "@cwasm/nsbmp": {
+    decode: nsbmp.decode,
+    supportedGroups: [
+      "BI_RGB: 1 bit",
+      "BI_RGB: 4 bit",
+      "BI_RGB: 8 bit",
+      "BI_RGB: 16 bit",
+      "BI_RGB: 24 bit",
+      "BI_RGB: 32 bit",
+      "BI_RLE: 4 bit",
+      "BI_RLE: 8 bit",
+      "BI_BITFIELDS: 16 bit",
+      "BI_BITFIELDS: 32 bit",
+    ],
+  },
+  "fast-bmp": {
+    decode: fast_bmp.decode,
+    supportedGroups: [
+      "BI_RGB: 8 bit",
+      "BI_RGB: 24 bit",
+    ],
+  },
+  "bmp-ts": {
+    decode: (data) => bmp_ts.decode(Buffer.from(data)),
+    supportedGroups: [
+      "BI_RGB: 16 bit",
+      "BI_RGB: 32 bit",
+      "BI_BITFIELDS: 16 bit",
+      "BI_BITFIELDS: 32 bit",
+    ],
+  },
+  "bmp-js": {
+    decode: (data) => bmpjs.decode(Buffer.from(data)),
+    supportedGroups: [
+      "BI_RGB: 1 bit",
+      "BI_RGB: 4 bit",
+      "BI_RGB: 8 bit",
+      "BI_RGB: 16 bit",
+      "BI_RGB: 24 bit",
+      "BI_RGB: 32 bit",
+      "BI_RLE: 4 bit",
+      "BI_RLE: 8 bit",
+    ],
+  },
+  "bmpimagejs": {
+    decode: (data) => bmpimagejs.decode(data.buffer),
+    supportedGroups: [
+      "BI_RGB: 1 bit",
+      "BI_RGB: 4 bit",
+      "BI_RGB: 8 bit",
+      "BI_RGB: 16 bit",
+      "BI_RGB: 24 bit",
+      "BI_RGB: 32 bit",
+      "BI_RLE: 4 bit",
+      "BI_RLE: 8 bit",
+      "BI_BITFIELDS: 16 bit",
+      "BI_BITFIELDS: 32 bit",
+    ],
+  },
 };
 
 // -------------------- Helpers --------------------
 
 function runBench(group: string, data: Uint8Array<ArrayBuffer>) {
-  for (const [libName, decodeFn] of Object.entries(LIB_DECODERS)) {
-    const isThrow = !isNonThrowFn(() => decodeFn(data));
-    Deno.bench(libName, { group, ignore: isThrow, n: 50_000 }, () => {
-      decodeFn(data);
+  for (const [libName, config] of Object.entries(LIB_DECODERS)) {
+    const isSupported = config.supportedGroups.includes(group);
+    const isThrow = !isNonThrowFn(() => config.decode(data));
+    Deno.bench(libName, { group, ignore: !isSupported || isThrow, n: 50_000 }, () => {
+      config.decode(data);
     });
   }
 }
