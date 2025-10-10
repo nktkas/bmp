@@ -28,11 +28,10 @@ async function compareDecodeResult(bmpBuffer: Uint8Array, pngBuffer: Uint8Array)
 
   assertEquals(bmp.width, png.info.width);
   assertEquals(bmp.height, png.info.height);
-  assertEquals(bmp.channels, png.info.channels);
 
   const diff = pixelmatch(
-    addAlphaChannel(bmp.data),
-    addAlphaChannel(png.data),
+    addAlphaChannel(bmp.data, bmp.channels),
+    addAlphaChannel(png.data, png.info.channels as 1 | 3 | 4),
     undefined,
     bmp.width,
     bmp.height,
@@ -41,16 +40,30 @@ async function compareDecodeResult(bmpBuffer: Uint8Array, pngBuffer: Uint8Array)
   assertEquals(diff, 0, `Found ${diff} different pixels`);
 }
 
-function addAlphaChannel(data: Uint8Array): Uint8Array {
-  if (data.length % 3 !== 0) return data; // Not RGB data
-  const withAlpha = new Uint8Array((data.length / 3) * 4);
-  for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
-    withAlpha[j] = data[i];
-    withAlpha[j + 1] = data[i + 1];
-    withAlpha[j + 2] = data[i + 2];
-    withAlpha[j + 3] = 255; // Opaque alpha
+function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
+  if (channels === 1) {
+    // Grayscale to RGBA
+    const withAlpha = new Uint8Array(data.length * 4);
+    for (let i = 0, j = 0; i < data.length; i++, j += 4) {
+      withAlpha[j] = data[i];
+      withAlpha[j + 1] = data[i];
+      withAlpha[j + 2] = data[i];
+      withAlpha[j + 3] = 255;
+    }
+    return withAlpha;
   }
-  return withAlpha;
+  if (channels === 3) {
+    // RGB to RGBA
+    const withAlpha = new Uint8Array((data.length / 3) * 4);
+    for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
+      withAlpha[j] = data[i];
+      withAlpha[j + 1] = data[i + 1];
+      withAlpha[j + 2] = data[i + 2];
+      withAlpha[j + 3] = 255;
+    }
+    return withAlpha;
+  }
+  return data; // Already RGBA
 }
 
 Deno.test('Decode "good" BMP', async (t) => {

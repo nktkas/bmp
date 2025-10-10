@@ -11,7 +11,7 @@ export interface RGBImageData {
   /** Height of the image in pixels */
   height: number;
   /** Number of channels in the image */
-  channels: 3 | 4;
+  channels: 1 | 3 | 4;
   /** Raw RGB(A) data */
   data: Uint8Array;
 }

@@ -53,29 +53,111 @@ function decode1Bit(bmp: Uint8Array, header: BMPHeader): RGBImageData {
   const stride = Math.ceil((biBitCount * absWidth) / 32) * 4;
   const palette = extractColorTable(bmp, header)!;
 
-  // 3. Allocate output buffer
-  const output = new Uint8Array(absWidth * absHeight * 3);
+  // 3. Check if palette is grayscale (R=G=B for all colors)
+  const isGrayscale = palette.every((c) => c.rgbRed === c.rgbGreen && c.rgbGreen === c.rgbBlue);
+  const channels = isGrayscale ? 1 : 3;
 
-  // 4. Process pixels (palette indices to RGB)
-  for (let y = 0; y < absHeight; y++) {
-    const srcY = isTopDown ? y : (absHeight - 1 - y);
-    const srcRowStart = bfOffBits + srcY * stride;
-    let dstOffset = y * absWidth * 3;
+  // 4. Allocate output buffer
+  const output = new Uint8Array(absWidth * absHeight * channels);
 
-    for (let x = 0; x < absWidth; x++) {
-      // Each byte contains 8 pixels (1 bit each)
-      const byte = bmp[srcRowStart + Math.floor(x / 8)];
-      const color = palette[(byte >> (7 - (x % 8))) & 0x01];
-      output[dstOffset++] = color.rgbRed;
-      output[dstOffset++] = color.rgbGreen;
-      output[dstOffset++] = color.rgbBlue;
+  // 5. Process pixels
+  if (isGrayscale) { // For grayscale, output single channel
+    // Precompute palette values
+    const color0 = palette[0].rgbRed;
+    const color1 = palette[1].rgbRed;
+
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      const srcRowStart = bfOffBits + srcY * stride;
+      let dstOffset = y * absWidth;
+      let srcOffset = srcRowStart;
+
+      // Process full bytes
+      const fullBytes = Math.floor(absWidth / 8);
+      for (let b = 0; b < fullBytes; b++) {
+        const byte = bmp[srcOffset++];
+        output[dstOffset++] = (byte & 0x80) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x40) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x20) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x10) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x08) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x04) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x02) ? color1 : color0;
+        output[dstOffset++] = (byte & 0x01) ? color1 : color0;
+      }
+
+      // Process remaining pixels
+      let x = fullBytes * 8;
+      if (x < absWidth) {
+        const byte = bmp[srcOffset];
+        for (let bit = 7; x < absWidth; bit--, x++) {
+          output[dstOffset++] = (byte >> bit) & 0x01 ? color1 : color0;
+        }
+      }
+    }
+  } else { // For color, output 3 channels (RGB)
+    // Precompute palette values
+    const color0R = palette[0].rgbRed;
+    const color0G = palette[0].rgbGreen;
+    const color0B = palette[0].rgbBlue;
+    const color1R = palette[1].rgbRed;
+    const color1G = palette[1].rgbGreen;
+    const color1B = palette[1].rgbBlue;
+
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      const srcRowStart = bfOffBits + srcY * stride;
+      let dstOffset = y * absWidth * 3;
+      let srcOffset = srcRowStart;
+
+      // Process full bytes
+      const fullBytes = Math.floor(absWidth / 8);
+      for (let b = 0; b < fullBytes; b++) {
+        const byte = bmp[srcOffset++];
+        output[dstOffset++] = (byte & 0x80) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x80) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x80) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x40) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x40) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x40) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x20) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x20) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x20) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x10) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x10) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x10) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x08) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x08) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x08) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x04) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x04) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x04) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x02) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x02) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x02) ? color1B : color0B;
+        output[dstOffset++] = (byte & 0x01) ? color1R : color0R;
+        output[dstOffset++] = (byte & 0x01) ? color1G : color0G;
+        output[dstOffset++] = (byte & 0x01) ? color1B : color0B;
+      }
+
+      // Process remaining pixels
+      let x = fullBytes * 8;
+      if (x < absWidth) {
+        const byte = bmp[srcOffset];
+        for (let bit = 7; x < absWidth; bit--, x++) {
+          const colorIdx = (byte >> bit) & 0x01;
+          output[dstOffset++] = colorIdx ? color1R : color0R;
+          output[dstOffset++] = colorIdx ? color1G : color0G;
+          output[dstOffset++] = colorIdx ? color1B : color0B;
+        }
+      }
     }
   }
 
   return {
     width: absWidth,
     height: absHeight,
-    channels: 3,
+    channels: channels,
     data: output,
   };
 }
@@ -103,14 +185,44 @@ function decode2Bit(bmp: Uint8Array, header: BMPHeader): RGBImageData {
     const srcY = isTopDown ? y : (absHeight - 1 - y);
     const srcRowStart = bfOffBits + srcY * stride;
     let dstOffset = y * absWidth * 3;
+    let srcOffset = srcRowStart;
 
-    for (let x = 0; x < absWidth; x++) {
-      // Each byte contains 4 pixels (2 bits each)
-      const byte = bmp[srcRowStart + Math.floor(x / 4)];
-      const color = palette[(byte >> ((3 - (x % 4)) * 2)) & 0x03];
-      output[dstOffset++] = color.rgbRed;
-      output[dstOffset++] = color.rgbGreen;
-      output[dstOffset++] = color.rgbBlue;
+    // Process full bytes (4 pixels per byte)
+    const fullBytes = Math.floor(absWidth / 4);
+    for (let b = 0; b < fullBytes; b++) {
+      const byte = bmp[srcOffset++];
+
+      const c0 = palette[(byte >> 6) & 0x03];
+      output[dstOffset++] = c0.rgbRed;
+      output[dstOffset++] = c0.rgbGreen;
+      output[dstOffset++] = c0.rgbBlue;
+
+      const c1 = palette[(byte >> 4) & 0x03];
+      output[dstOffset++] = c1.rgbRed;
+      output[dstOffset++] = c1.rgbGreen;
+      output[dstOffset++] = c1.rgbBlue;
+
+      const c2 = palette[(byte >> 2) & 0x03];
+      output[dstOffset++] = c2.rgbRed;
+      output[dstOffset++] = c2.rgbGreen;
+      output[dstOffset++] = c2.rgbBlue;
+
+      const c3 = palette[byte & 0x03];
+      output[dstOffset++] = c3.rgbRed;
+      output[dstOffset++] = c3.rgbGreen;
+      output[dstOffset++] = c3.rgbBlue;
+    }
+
+    // Process remaining pixels
+    let x = fullBytes * 4;
+    if (x < absWidth) {
+      const byte = bmp[srcOffset];
+      for (let shift = 6; x < absWidth; shift -= 2, x++) {
+        const color = palette[(byte >> shift) & 0x03];
+        output[dstOffset++] = color.rgbRed;
+        output[dstOffset++] = color.rgbGreen;
+        output[dstOffset++] = color.rgbBlue;
+      }
     }
   }
 
@@ -145,11 +257,28 @@ function decode4Bit(bmp: Uint8Array, header: BMPHeader): RGBImageData {
     const srcY = isTopDown ? y : (absHeight - 1 - y);
     const srcRowStart = bfOffBits + srcY * stride;
     let dstOffset = y * absWidth * 3;
+    let srcOffset = srcRowStart;
 
-    for (let x = 0; x < absWidth; x++) {
-      // Each byte contains 2 pixels (4 bits each)
-      const byte = bmp[srcRowStart + Math.floor(x / 2)];
-      const color = palette[(byte >> ((1 - (x % 2)) * 4)) & 0x0F];
+    // Process full bytes (2 pixels per byte)
+    const fullBytes = Math.floor(absWidth / 2);
+    for (let b = 0; b < fullBytes; b++) {
+      const byte = bmp[srcOffset++];
+
+      const c0 = palette[(byte >> 4) & 0x0F];
+      output[dstOffset++] = c0.rgbRed;
+      output[dstOffset++] = c0.rgbGreen;
+      output[dstOffset++] = c0.rgbBlue;
+
+      const c1 = palette[byte & 0x0F];
+      output[dstOffset++] = c1.rgbRed;
+      output[dstOffset++] = c1.rgbGreen;
+      output[dstOffset++] = c1.rgbBlue;
+    }
+
+    // Process remaining pixel (if width is odd)
+    if (absWidth % 2 !== 0) {
+      const byte = bmp[srcOffset];
+      const color = palette[(byte >> 4) & 0x0F];
       output[dstOffset++] = color.rgbRed;
       output[dstOffset++] = color.rgbGreen;
       output[dstOffset++] = color.rgbBlue;
