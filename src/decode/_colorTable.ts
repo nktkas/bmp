@@ -1,5 +1,3 @@
-import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
-
 /** Color palette entry for indexed color BMP images */
 export interface RGBQUAD {
   /** Blue channel intensity (0-255) */
@@ -14,18 +12,14 @@ export interface RGBQUAD {
 
 /**
  * Extracts color palette from BMP file for indexed color images (1, 2, 4, 8 bits).
- * @param bmp Raw BMP file data
- * @param header Parsed BMP header
- * @returns Array of RGBQUAD entries, or null if no palette exists
- * @throws {Error} If data is insufficient to read the color table
  */
-export function extractColorTable(bmp: Uint8Array, header: BMPHeader): RGBQUAD[] | null {
-  // 0. Get header data and validate
-  const { bfOffBits } = header.fileHeader;
-  const { biSize, biBitCount, biClrUsed } = getNormalizedHeaderInfo(header.infoHeader);
-
-  if (biBitCount > 8) return null; // color table only exists for 1, 2, 4, 8 bit images
-
+export function extractColorTable(
+  bmp: Uint8Array,
+  bfOffBits: number,
+  biSize: number,
+  biBitCount: 1 | 2 | 4 | 8,
+  biClrUsed: number,
+): RGBQUAD[] {
   // 1. Calculate palette location (after 14-byte file header + info header)
   const colorTableOffset = 14 + biSize;
   const colorTableSize = bfOffBits - colorTableOffset;

@@ -21,8 +21,11 @@ const LIB_DECODERS: Record<string, DecoderConfig> = {
     decode: (data) => nktkas_bmp.decode(data),
     supportedGroups: [
       "BI_RGB: 1 bit",
+      "BI_RGB: 1 bit (grayscale)",
       "BI_RGB: 4 bit",
+      "BI_RGB: 4 bit (grayscale)",
       "BI_RGB: 8 bit",
+      "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 16 bit",
       "BI_RGB: 24 bit",
       "BI_RGB: 32 bit",
@@ -36,8 +39,11 @@ const LIB_DECODERS: Record<string, DecoderConfig> = {
     decode: nsbmp.decode,
     supportedGroups: [
       "BI_RGB: 1 bit",
+      "BI_RGB: 1 bit (grayscale)",
       "BI_RGB: 4 bit",
+      "BI_RGB: 4 bit (grayscale)",
       "BI_RGB: 8 bit",
+      "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 16 bit",
       "BI_RGB: 24 bit",
       "BI_RGB: 32 bit",
@@ -51,6 +57,7 @@ const LIB_DECODERS: Record<string, DecoderConfig> = {
     decode: fast_bmp.decode,
     supportedGroups: [
       "BI_RGB: 8 bit",
+      "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 24 bit",
     ],
   },
@@ -67,8 +74,11 @@ const LIB_DECODERS: Record<string, DecoderConfig> = {
     decode: (data) => bmpjs.decode(Buffer.from(data)),
     supportedGroups: [
       "BI_RGB: 1 bit",
+      "BI_RGB: 1 bit (grayscale)",
       "BI_RGB: 4 bit",
+      "BI_RGB: 4 bit (grayscale)",
       "BI_RGB: 8 bit",
+      "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 16 bit",
       "BI_RGB: 24 bit",
       "BI_RGB: 32 bit",
@@ -80,8 +90,11 @@ const LIB_DECODERS: Record<string, DecoderConfig> = {
     decode: (data) => bmpimagejs.decode(data.buffer),
     supportedGroups: [
       "BI_RGB: 1 bit",
+      "BI_RGB: 1 bit (grayscale)",
       "BI_RGB: 4 bit",
+      "BI_RGB: 4 bit (grayscale)",
       "BI_RGB: 8 bit",
+      "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 16 bit",
       "BI_RGB: 24 bit",
       "BI_RGB: 32 bit",
@@ -106,14 +119,23 @@ function runBench(group: string, data: Uint8Array<ArrayBuffer>) {
 
 // -------------------- BI_RGB --------------------
 
+const pal1bg = await Deno.readFile("./tests/bmpsuite-2.8/g/pal1bg.bmp");
+runBench("BI_RGB: 1 bit", pal1bg);
+
 const pal1 = await Deno.readFile("./tests/bmpsuite-2.8/g/pal1.bmp");
-runBench("BI_RGB: 1 bit", pal1);
+runBench("BI_RGB: 1 bit (grayscale)", pal1);
 
 const pal4 = await Deno.readFile("./tests/bmpsuite-2.8/g/pal4.bmp");
 runBench("BI_RGB: 4 bit", pal4);
 
+const pal4gs = await Deno.readFile("./tests/bmpsuite-2.8/g/pal4gs.bmp");
+runBench("BI_RGB: 4 bit (grayscale)", pal4gs);
+
 const pal8 = await Deno.readFile("./tests/bmpsuite-2.8/g/pal8.bmp");
 runBench("BI_RGB: 8 bit", pal8);
+
+const pal8gs = await Deno.readFile("./tests/bmpsuite-2.8/g/pal8gs.bmp");
+runBench("BI_RGB: 8 bit (grayscale)", pal8gs);
 
 const rgb16 = await Deno.readFile("./tests/bmpsuite-2.8/g/rgb16.bmp");
 runBench("BI_RGB: 16 bit", rgb16);

@@ -1,5 +1,5 @@
 import type { RawImageData } from "./mod.ts";
-import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
+import type { BMPHeader } from "./_bmpHeader.ts";
 
 /** Extracted bit mask information */
 interface BitMasks {
@@ -9,11 +9,10 @@ interface BitMasks {
   alphaMask: number;
 }
 
-/** Analyzed mask information with shift and scale values */
-interface MaskInfo {
+/** Analyzed mask information with shift and bit depth values */
+interface BitMaskInfo {
   shift: number;
   bits: number;
-  scale: number;
 }
 
 /** Lookup tables for fast color scaling */
@@ -26,14 +25,11 @@ interface ColorScalingLUTs {
 
 /**
  * Converts a BMP with BI_BITFIELDS compression to a raw pixel image data
- * @param bmp The BMP array to convert
- * @param header Parsed BMP header
- * @returns The raw pixel image data (width, height, channels, data)
  */
 export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
   // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
-  const { biWidth, biHeight, biBitCount, biCompression } = getNormalizedHeaderInfo(header.infoHeader);
+  const { biWidth, biHeight, biBitCount, biCompression } = header.infoHeader;
 
   if (biCompression !== 3 && biCompression !== 6) {
     throw new Error(
@@ -162,11 +158,13 @@ export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImag
   };
 }
 
-/** Extract bit masks from BMP header */
+/**
+ * Extract bit masks from BMP header
+ */
 function extractBitMasks(bmp: Uint8Array, header: BMPHeader): BitMasks {
   // 0. Get header info
   const { bfOffBits } = header.fileHeader;
-  const { biBitCount, biSize } = getNormalizedHeaderInfo(header.infoHeader);
+  const { biBitCount, biSize } = header.infoHeader;
 
   // 1. Read masks from appropriate source
   let redMask: number, greenMask: number, blueMask: number, alphaMask: number;
@@ -214,11 +212,13 @@ function extractBitMasks(bmp: Uint8Array, header: BMPHeader): BitMasks {
   return { redMask, greenMask, blueMask, alphaMask };
 }
 
-/** Analyze a single bit mask to extract shift and scale values */
-function analyzeBitMask(mask: number): MaskInfo {
+/**
+ * Analyze a single bit mask to determine shift and bit depth
+ */
+function analyzeBitMask(mask: number): BitMaskInfo {
   // 0. Handle zero mask
   if (mask === 0) {
-    return { shift: 0, bits: 0, scale: 0 };
+    return { shift: 0, bits: 0 };
   }
 
   let temp = mask;
@@ -237,14 +237,12 @@ function analyzeBitMask(mask: number): MaskInfo {
     temp >>>= 1;
   }
 
-  // 3. Calculate scale factor for 0-255 conversion
-  const maxValue = (1 << bits) - 1;
-  const scale = maxValue > 0 ? 255 / maxValue : 0;
-
-  return { shift, bits, scale };
+  return { shift, bits };
 }
 
-/** Create lookup tables for fast color scaling */
+/**
+ * Create lookup tables for fast color scaling
+ */
 function createColorScalingLookupTables(
   redBits: number,
   greenBits: number,

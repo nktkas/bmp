@@ -1,5 +1,5 @@
 import type { RawImageData } from "./mod.ts";
-import { type BMPHeader, getNormalizedHeaderInfo } from "./_bmpHeader.ts";
+import type { BMPHeader } from "./_bmpHeader.ts";
 import { extractColorTable } from "./_colorTable.ts";
 
 // Modified Huffman (CCITT Group 3 1D) code tables for white runs
@@ -202,14 +202,11 @@ const EOL = "000000000001"; // End of line marker
 
 /**
  * Converts a BMP with Modified Huffman (OS/2 Huffman 1D) compression to a raw pixel image data
- * @param bmp The BMP array to convert
- * @param header Parsed BMP header
- * @returns The raw pixel image data (width, height, channels, data)
  */
 export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
   // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
-  const { biWidth, biHeight, biBitCount, biCompression } = getNormalizedHeaderInfo(header.infoHeader);
+  const { biWidth, biHeight, biCompression, biSize, biBitCount, biClrUsed } = header.infoHeader;
 
   if (biCompression !== 3) {
     throw new Error(`Unsupported BMP compression method: received ${biCompression}, expected 3 (BI_HUFFMAN)`);
@@ -224,43 +221,66 @@ export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageD
   const isTopDown = biHeight < 0;
 
   // 2. Extract color palette
-  const palette = extractColorTable(bmp, header)!;
+  const palette = extractColorTable(bmp, bfOffBits, biSize, biBitCount, biClrUsed);
 
-  // 3. Allocate output buffer
-  const output = new Uint8Array(absWidth * absHeight * 3);
+  // 3. Check if palette is grayscale (R=G=B for all colors)
+  const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
+  const channels = isGrayscale ? 1 : 3;
 
-  // 4. Decode Huffman-compressed data
+  // 4. Allocate output buffer
+  const output = new Uint8Array(absWidth * absHeight * channels);
+
+  // 5. Decode Huffman-compressed data
   const pixels = decompressHuffman(bmp, bfOffBits, absWidth, absHeight);
 
-  // 5. Process pixels (palette indices to RGB)
-  for (let y = 0; y < absHeight; y++) {
-    const srcY = isTopDown ? y : (absHeight - 1 - y);
-    let srcOffset = srcY * absWidth;
-    let dstOffset = y * absWidth * 3;
+  // 6. Process pixels (palette indices to RGB/Grayscale)
+  if (isGrayscale) {
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      let srcOffset = srcY * absWidth;
+      let dstOffset = y * absWidth;
 
-    for (let x = 0; x < absWidth; x++) {
-      const color = palette[pixels[srcOffset++]];
-      output[dstOffset++] = color.red;
-      output[dstOffset++] = color.green;
-      output[dstOffset++] = color.blue;
+      for (let x = 0; x < absWidth; x++) {
+        output[dstOffset++] = palette[pixels[srcOffset++]].red;
+      }
+    }
+  } else {
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      let srcOffset = srcY * absWidth;
+      let dstOffset = y * absWidth * 3;
+
+      for (let x = 0; x < absWidth; x++) {
+        const color = palette[pixels[srcOffset++]];
+        output[dstOffset++] = color.red;
+        output[dstOffset++] = color.green;
+        output[dstOffset++] = color.blue;
+      }
     }
   }
 
   return {
     width: absWidth,
     height: absHeight,
-    channels: 3,
+    channels: channels,
     data: output,
   };
 }
 
-/** Decompresses Modified Huffman (CCITT Group 3 1D) encoded data */
-function decompressHuffman(bmp: Uint8Array, offset: number, width: number, height: number): Uint8Array {
-  const pixels = new Uint8Array(width * height);
+/**
+ * Decompresses Modified Huffman (CCITT Group 3 1D) encoded data
+ */
+function decompressHuffman(
+  bmp: Uint8Array,
+  bfOffBits: number,
+  absWidth: number,
+  absHeight: number,
+): Uint8Array {
+  const pixels = new Uint8Array(absWidth * absHeight);
 
   // Convert compressed data to bit string for easier parsing
   let bitString = "";
-  for (let i = offset; i < bmp.length; i++) {
+  for (let i = bfOffBits; i < bmp.length; i++) {
     bitString += bmp[i].toString(2).padStart(8, "0");
   }
 
@@ -272,11 +292,11 @@ function decompressHuffman(bmp: Uint8Array, offset: number, width: number, heigh
     bitPos += 12;
   }
 
-  for (let row = 0; row < height; row++) {
+  for (let row = 0; row < absHeight; row++) {
     let col = 0;
     let isWhite = true; // Scan lines always start with white run
 
-    while (col < width) {
+    while (col < absWidth) {
       const runLength = decodeRun(bitString, bitPos, isWhite);
       if (!runLength) break; // Error or EOL encountered
 
@@ -284,7 +304,7 @@ function decompressHuffman(bmp: Uint8Array, offset: number, width: number, heigh
 
       // Fill pixels with current color
       const colorValue = isWhite ? 0 : 1;
-      for (let i = 0; i < runLength.length && col < width; i++, col++) {
+      for (let i = 0; i < runLength.length && col < absWidth; i++, col++) {
         pixels[pixelPos++] = colorValue;
       }
 
@@ -305,7 +325,9 @@ function decompressHuffman(bmp: Uint8Array, offset: number, width: number, heigh
   return pixels;
 }
 
-/** Decodes a single run (white or black) from the bit stream */
+/**
+ * Decodes a single run (white or black) from the bit stream
+ */
 function decodeRun(
   bitString: string,
   startPos: number,

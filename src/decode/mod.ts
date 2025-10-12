@@ -1,5 +1,5 @@
 import type { RawImageData } from "../_common.ts";
-import { getNormalizedHeaderInfo, readBMPHeader } from "./_bmpHeader.ts";
+import { readBMPHeader } from "./_bmpHeader.ts";
 import { BI_RGB_TO_RAW } from "./_bi_rgb.ts";
 import { BI_RLE_TO_RAW } from "./_bi_rle.ts";
 import { BI_BITFIELDS_TO_RAW } from "./_bi_bitfields.ts";
@@ -47,27 +47,26 @@ export type { RawImageData };
  */
 export function decode(bmp: Uint8Array): RawImageData {
   const header = readBMPHeader(bmp);
-  const { biCompression, biBitCount } = getNormalizedHeaderInfo(header.infoHeader);
+  const { biCompression, biBitCount } = header.infoHeader;
 
-  if (biCompression === 0) {
+  if (biCompression === 0) { // BI_RGB
     return BI_RGB_TO_RAW(bmp, header);
   }
-  if (biCompression === 1 || biCompression === 2 || (biCompression === 4 && biBitCount === 24)) {
+  if (biCompression === 1 || biCompression === 2 || (biCompression === 4 && biBitCount === 24)) { // RLE8, RLE4, RLE24
     return BI_RLE_TO_RAW(bmp, header);
   }
-  if (biCompression === 3 && biBitCount === 1) {
+  if (biCompression === 3 && biBitCount === 1) { // BI_HUFFMAN
     return BI_HUFFMAN_TO_RAW(bmp, header);
   }
-  if (biCompression === 3 || biCompression === 6) {
+  if (biCompression === 3 || biCompression === 6) { // BI_BITFIELDS, BI_ALPHABITFIELDS
     return BI_BITFIELDS_TO_RAW(bmp, header);
   }
-
-  if (biCompression === 4) {
+  if (biCompression === 4) { // BI_JPEG
     throw new Error(
       `Unsupported compression type: ${biCompression} (JPEG in BMP). Use "extractCompressedData" to extract the embedded image.`,
     );
   }
-  if (biCompression === 5) {
+  if (biCompression === 5) { // BI_PNG
     throw new Error(
       `Unsupported compression type: ${biCompression} (PNG in BMP). Use "extractCompressedData" to extract the embedded image.`,
     );
@@ -76,23 +75,20 @@ export function decode(bmp: Uint8Array): RawImageData {
 }
 
 /** Compressed image data extracted from BMP */
-export interface CompressedImage {
+export interface CompressedImageData {
   /** Image width in pixels */
   width: number;
   /** Image height in pixels */
   height: number;
   /**
    * Compression type:
-   * - 0 = BI_RGB (no compression)
+   * - 0 = BI_RGB
    * - 1 = BI_RLE8
    * - 2 = BI_RLE4
    * - 3 = BI_BITFIELDS
    * - 4 = BI_JPEG
    * - 5 = BI_PNG
    * - 6 = BI_ALPHABITFIELDS
-   * - 11 = BI_CMYK
-   * - 12 = BI_CMYKRLE8
-   * - 13 = BI_CMYKRLE4
    */
   compression: number;
   /** Raw compressed data */
@@ -156,13 +152,11 @@ export interface CompressedImage {
  * const raw = await sharp(extracted.data).raw().toBuffer();
  * ```
  */
-export function extractCompressedData(bmp: Uint8Array): CompressedImage {
-  // 0. Get header data
+export function extractCompressedData(bmp: Uint8Array): CompressedImageData {
   const header = readBMPHeader(bmp);
   const { bfOffBits } = header.fileHeader;
-  const { biWidth, biHeight, biCompression, biSizeImage } = getNormalizedHeaderInfo(header.infoHeader);
+  const { biWidth, biHeight, biCompression, biSizeImage } = header.infoHeader;
 
-  // 1. Extract image dimensions and data
   const absWidth = Math.abs(biWidth);
   const absHeight = Math.abs(biHeight);
   const data = bmp.slice(bfOffBits, bfOffBits + biSizeImage);

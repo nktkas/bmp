@@ -17,7 +17,7 @@ await build({
   package: {
     name: "@nktkas/bmp",
     version: denoJson.version,
-    description: "Full featured TypeScript library to read/write BMP files: any bit depth, RGB, indexed, RLE, 64bpp",
+    description: "Fast and lightweight BMP image encoder/decoder",
     keywords: [
       "bmp",
       "bitmap",
