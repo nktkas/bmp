@@ -5,8 +5,6 @@ import { BI_RLE_TO_RAW } from "./_bi_rle.ts";
 import { BI_BITFIELDS_TO_RAW } from "./_bi_bitfields.ts";
 import { BI_HUFFMAN_TO_RAW } from "./_bi_huffman.ts";
 
-export type { RawImageData };
-
 /**
  * Converts a BMP image to a raw pixel image data
  * @param bmp The BMP array to convert
@@ -168,3 +166,6 @@ export function extractCompressedData(bmp: Uint8Array): CompressedImageData {
     data,
   };
 }
+
+// Re-export types
+export type { RawImageData };

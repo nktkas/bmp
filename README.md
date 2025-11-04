@@ -8,9 +8,10 @@ Fast and lightweight BMP image encoder/decoder.
 
 Works with:
 <img alt="browsers" title="This package works with browsers." height="16px" src="https://jsr.io/logos/browsers.svg" />
+<img alt="Bun" title="This package works with Bun." height="16px" src="https://jsr.io/logos/bun.svg" />
 <img alt="Deno" title="This package works with Deno." height="16px" src="https://jsr.io/logos/deno.svg" />
 <img alt="Node.js" title="This package works with Node.js" height="16px" src="https://jsr.io/logos/node.svg" />
-<img alt="Bun" title="This package works with Bun." height="16px" src="https://jsr.io/logos/bun.svg" />
+<img alt="Cloudflare Workers" title="This package works with Cloudflare Workers." height="16px" src="https://jsr.io/logos/cloudflare-workers.svg" />
 
 ## Usage
 
@@ -18,12 +19,14 @@ Works with:
 
 Supported BMP formats:
 
-- Any header types (BITMAPINFOHEADER, BITMAPV4HEADER, BITMAPV5HEADER, etc.)
-- Any compression methods (BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, etc.)
-- Any bits per pixel (1, 4, 8, 16, 24, 32)
-- Top-down and bottom-up images
+- **Any header types**: BITMAPINFOHEADER, BITMAPV4HEADER, BITMAPV5HEADER, etc.
+- **Any compression methods**: BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, etc.
+- **Any bits per pixel**: 1, 4, 8, 16, 24, 32
+- **Top-down and bottom-up images**
 
 <sub>Full list of supported BMP formats [here](https://entropymine.com/jason/bmpsuite/bmpsuite/html/bmpsuite.html)</sub>
+
+#### Basic usage
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -32,59 +35,63 @@ import { decode } from "@nktkas/bmp";
 // A minimal 1x1 pixel 24-bit BMP file
 const file = new Uint8Array([
   // BMP File Header (14 bytes)
-  0x42, 0x4D,             // Signature 'BM'
-  0x3A, 0x00, 0x00, 0x00, // File size (58 bytes)
-  0x00, 0x00,             // Reserved
-  0x00, 0x00,             // Reserved
-  0x36, 0x00, 0x00, 0x00, // Pixel data offset (54 bytes)
+  0x42, 0x4D,
+  0x3A, 0x00, 0x00, 0x00,
+  0x00, 0x00,
+  0x00, 0x00,
+  0x36, 0x00, 0x00, 0x00,
   // DIB Header (BITMAPINFOHEADER, 40 bytes)
-  0x28, 0x00, 0x00, 0x00, // Header size (40)
-  0x01, 0x00, 0x00, 0x00, // Width (1 pixel)
-  0x01, 0x00, 0x00, 0x00, // Height (1 pixel)
-  0x01, 0x00,             // Color planes (1)
-  0x18, 0x00,             // Bits per pixel (24)
-  0x00, 0x00, 0x00, 0x00, // Compression (0 = none)
-  0x04, 0x00, 0x00, 0x00, // Image size (4 bytes with padding)
-  0x00, 0x00, 0x00, 0x00, // X pixels per meter
-  0x00, 0x00, 0x00, 0x00, // Y pixels per meter
-  0x00, 0x00, 0x00, 0x00, // Colors used
-  0x00, 0x00, 0x00, 0x00, // Important colors
-  // Pixel data (BGR format + padding to 4 bytes)
-  0x00, 0x00, 0x00,       // Black pixel (Blue, Green, Red)
-  0x00                    // Padding to 4 bytes
+  0x28, 0x00, 0x00, 0x00,
+  0x01, 0x00, 0x00, 0x00,
+  0x01, 0x00, 0x00, 0x00,
+  0x01, 0x00,
+  0x18, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x04, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  // Pixel data (BGR + padding) - 1x1 black pixel
+  0x00, 0x00, 0x00,
+  0x00
 ]);
 
 const raw = decode(bmp);
 // { width: 1, height: 1, channels: 3, data: Uint8Array(3) [0, 0, 0] }
+//                                 ^^^
+//                                 may be 1 (grayscale), 3 (RGB), or 4 (RGBA)
 ```
 
-Excluding compressed BMP images with embedded JPEG/PNG data (BI_JPEG/BI_PNG compression). For those, you can extract the
-compressed data and decode it with any external JPEG/PNG decoder.
+#### BI_JPEG / BI_PNG compressed images
+
+These formats use external compression (JPEG/PNG) for the pixel data, which is not directly supported by the BMP format.
+To work with these images, you need to extract the compressed data and decode it with a suitable library.
 
 <!-- deno-fmt-ignore -->
 ```ts
 import { extractCompressedData } from "@nktkas/bmp";
 
-// A minimal 1x1 pixel BMP file with embedded PNG data (BI_PNG compression)
+// A minimal 1x1 pixel BMP file with embedded PNG data
 const bmp = new Uint8Array([
   // BMP File Header (14 bytes)
-  0x42, 0x4D,             // Signature 'BM'
-  0x7B, 0x00, 0x00, 0x00, // File size (123 bytes)
-  0x00, 0x00,             // Reserved
-  0x00, 0x00,             // Reserved
-  0x36, 0x00, 0x00, 0x00, // Pixel data offset (54 bytes)
+  0x42, 0x4D,
+  0x7B, 0x00, 0x00, 0x00,
+  0x00, 0x00,
+  0x00, 0x00,
+  0x36, 0x00, 0x00, 0x00,
   // DIB Header (BITMAPINFOHEADER, 40 bytes)
-  0x28, 0x00, 0x00, 0x00, // Header size (40)
-  0x01, 0x00, 0x00, 0x00, // Width (1 pixel)
-  0x01, 0x00, 0x00, 0x00, // Height (1 pixel)
-  0x01, 0x00,             // Color planes (1)
-  0x00, 0x00,             // Bits per pixel (0 for BI_PNG)
-  0x05, 0x00, 0x00, 0x00, // Compression (5 = BI_PNG)
-  0x45, 0x00, 0x00, 0x00, // Image size (69 bytes - PNG data size)
-  0x00, 0x00, 0x00, 0x00, // X pixels per meter
-  0x00, 0x00, 0x00, 0x00, // Y pixels per meter
-  0x00, 0x00, 0x00, 0x00, // Colors used
-  0x00, 0x00, 0x00, 0x00, // Important colors
+  0x28, 0x00, 0x00, 0x00,
+  0x01, 0x00, 0x00, 0x00,
+  0x01, 0x00, 0x00, 0x00,
+  0x01, 0x00,
+  0x00, 0x00,
+  0x05, 0x00, 0x00, 0x00,
+  0x45, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00,
   // Embedded PNG data (69 bytes) - 1x1 black pixel
   // PNG signature
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -103,14 +110,107 @@ const bmp = new Uint8Array([
 
 const extracted = extractCompressedData(bmp);
 // { width: 1, height: 1, compression: 5, data: Uint8Array(69) [...] }
-//                                     ^ BI_JPEG = 4, BI_PNG = 5
+//                                    ^^^
+//                                    may be 4 (BI_JPEG) or 5 (BI_PNG) or others compressions
 
 // Then you can decode it with any JPEG/PNG decoder
 import sharp from "sharp";
 const raw = await sharp(extracted.data).raw().toBuffer();
 ```
 
-### Encode (TODO)
+### Encode
+
+Supported encoding formats:
+
+- **Bits per pixel**: 1, 4, 8, 16, 24, 32
+- **Compression**: BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, BI_ALPHABITFIELDS
+- **Header types**: BITMAPINFOHEADER, BITMAPV4HEADER, BITMAPV5HEADER
+- **Orientation**: Top-down and bottom-up
+
+#### Basic usage
+
+<!-- deno-fmt-ignore -->
+```ts
+import { encode } from "@nktkas/bmp";
+
+// A minimal raw image
+const raw = {
+  width: 2,
+  height: 2,
+  channels: 3, // 1 (grayscale), 3 (RGB), or 4 (RGBA)
+  data: new Uint8Array([ // 2x2 black and white pixels
+    0, 0, 0,  255, 255, 255,
+    0, 0, 0,  255, 255, 255,
+  ]),
+} as const;
+
+// Encode to 24-bit BMP (automatic detection of best settings based on raw data)
+const bmp = encode(raw);
+// Returns Uint8Array with complete BMP file
+```
+
+#### Advanced options
+
+```ts
+interface EncodeOptions {
+  /**
+   * Bits per pixel (1, 4, 8, 16, 24, or 32).
+   *
+   * Default: Auto-detected from input channels
+   * - channels=1 (grayscale) → 8-bit
+   * - channels=3 (RGB) → 24-bit
+   * - channels=4 (RGBA) → 32-bit
+   */
+  bitsPerPixel?: 1 | 4 | 8 | 16 | 24 | 32;
+
+  /**
+   * BMP compression method identifiers.
+   * - 0 (BI_RGB) - No compression. Raw pixel data.
+   * - 1 (BI_RLE8) - 8-bit run-length encoding. 256-color indexed only.
+   * - 2 (BI_RLE4) - 4-bit run-length encoding. 16-color indexed only.
+   * - 3 (BI_BITFIELDS) - Uncompressed with custom RGB bit masks.
+   * - 6 (BI_ALPHABITFIELDS) - Uncompressed with custom RGBA bit masks.
+   *
+   * Default: 0 (BI_RGB)
+   */
+  compression?: CompressionType;
+
+  /**
+   * BMP header format type. Determines header size and features.
+   * - `BITMAPINFOHEADER`: 40 bytes. Basic format.
+   * - `BITMAPV4HEADER`: 108 bytes. Embedded masks, color space, gamma support.
+   * - `BITMAPV5HEADER`: 124 bytes. Adds ICC profiles and rendering intent.
+   *
+   * Default: `BITMAPINFOHEADER`
+   */
+  headerType?: HeaderType;
+
+  /**
+   * BMP image orientation.
+   * - `false` - bottom-up (standard BMP)
+   * - `true` - top-down
+   *
+   * Default: false
+   */
+  topDown?: boolean;
+
+  /**
+   * Color palette for indexed formats (1, 4, 8-bit).
+   *
+   * If not provided, palette will be generated automatically.
+   */
+  palette?: RGBQUAD[];
+
+  /**
+   * Bitfield masks for BI_BITFIELDS/BI_ALPHABITFIELDS compression.
+   *
+   * If not provided, default masks will be used:
+   * - 16-bit - RGB565
+   * - 32-bit - BGRA
+   */
+  bitfields?: BitfieldMasks;
+}
+```
 
 ## Benchmarks
 
@@ -137,7 +237,7 @@ const raw = await sharp(extracted.data).raw().toBuffer();
 <details>
 <summary>Complete list and comparison</summary>
 
-<sub>Run command: [`deno bench --allow-read`](https://docs.deno.com/runtime/reference/cli/bench/)</sub>
+<sub>Run command: [`deno bench --allow-read ./tests/decode`](https://docs.deno.com/runtime/reference/cli/bench/)</sub>
 
 ```
     CPU | AMD Ryzen 9 9950X3D 16-Core Processor
@@ -312,5 +412,93 @@ summary
      1.93x faster than bmpimagejs
      5.81x faster than bmp-ts
 ```
+
+> If there's a library you'd like added to the benchmarks, please open an issue.
+
+</details>
+
+### Encode
+
+```
+# BI_RGB (127x64)
+1bit x 9,488 ops/sec @ 105.4µs/op
+4bit x 3,677 ops/sec @ 271.9µs/op
+8bit x 5,847 ops/sec @ 171.0µs/op
+16bit x 27,340 ops/sec @ 36.6µs/op
+24bit x 31,200 ops/sec @ 32.1µs/op
+32bit x 27,690 ops/sec @ 36.1µs/op
+
+# BI_RLE (127x64)
+4bit x 3,591 ops/sec @ 278.5µs/op
+8bit x 5,971 ops/sec @ 167.5µs/op
+
+# BI_BITFIELDS (127x64)
+16bit x 32,090 ops/sec @ 31.2µs/op
+32bit x 29,110 ops/sec @ 34.4µs/op
+```
+
+<details>
+<summary>Complete list and comparison</summary>
+
+<sub>Run command: [`deno bench --allow-read ./tests/encode`](https://docs.deno.com/runtime/reference/cli/bench/)</sub>
+
+```
+    CPU | AMD Ryzen 9 9950X3D 16-Core Processor
+Runtime | Deno 2.5.6 (x86_64-pc-windows-msvc)
+
+| benchmark     | time/iter (avg) |        iter/s |      (min … max)      |      p75 |      p99 |     p995 |
+| ------------- | --------------- | ------------- | --------------------- | -------- | -------- | -------- |
+
+group BI_RGB: 1 bit
+| @nktkas/bmp   |        105.4 µs |         9,488 | ( 94.3 µs …   3.7 ms) | 102.4 µs | 159.1 µs | 183.7 µs |
+
+group BI_RGB: 1 bit (grayscale)
+| @nktkas/bmp   |         20.6 µs |        48,580 | ( 14.9 µs …   6.1 ms) |  17.6 µs |  46.8 µs |  59.3 µs |
+
+group BI_RGB: 4 bit
+| @nktkas/bmp   |        271.9 µs |         3,677 | (261.6 µs …   1.2 ms) | 270.1 µs | 309.2 µs | 326.9 µs |
+
+group BI_RGB: 4 bit (grayscale)
+| @nktkas/bmp   |         24.4 µs |        41,070 | ( 16.5 µs …   5.5 ms) |  21.8 µs |  62.3 µs |  76.0 µs |
+
+group BI_RGB: 8 bit
+| @nktkas/bmp   |        171.0 µs |         5,847 | (155.9 µs … 443.2 µs) | 169.1 µs | 278.7 µs | 301.4 µs |
+
+group BI_RGB: 8 bit (grayscale)
+| @nktkas/bmp   |         23.7 µs |        42,150 | ( 15.5 µs … 139.3 µs) |  23.1 µs |  61.1 µs |  70.1 µs |
+| fast-bmp      |         46.4 µs |        21,570 | ( 36.2 µs …   2.6 ms) |  44.9 µs |  92.0 µs | 118.2 µs |
+
+summary
+  @nktkas/bmp
+     1.95x faster than fast-bmp
+
+group BI_RGB: 16 bit
+| @nktkas/bmp   |         36.6 µs |        27,340 | ( 22.4 µs …   3.4 ms) |  34.3 µs | 128.7 µs | 184.6 µs |
+
+group BI_RGB: 24 bit
+| @nktkas/bmp   |         32.1 µs |        31,200 | ( 19.4 µs …   3.1 ms) |  34.2 µs |  97.5 µs | 136.3 µs |
+| fast-bmp      |         84.8 µs |        11,790 | ( 72.8 µs …   1.3 ms) |  89.2 µs | 163.8 µs | 234.5 µs |
+
+summary
+  @nktkas/bmp
+     2.65x faster than fast-bmp
+
+group BI_RGB: 32 bit
+| @nktkas/bmp   |         36.1 µs |        27,690 | ( 22.9 µs …   3.4 ms) |  39.7 µs | 104.7 µs | 134.4 µs |
+
+group BI_RLE: 4 bit
+| @nktkas/bmp   |        278.5 µs |         3,591 | (261.0 µs …   1.1 ms) | 278.6 µs | 332.7 µs | 352.4 µs |
+
+group BI_RLE: 8 bit
+| @nktkas/bmp   |        167.5 µs |         5,971 | (157.3 µs … 623.6 µs) | 165.1 µs | 263.7 µs | 281.9 µs |
+
+group BI_BITFIELDS: 16 bit
+| @nktkas/bmp   |         31.2 µs |        32,090 | ( 24.9 µs …   3.1 ms) |  30.3 µs |  74.3 µs | 107.8 µs |
+
+group BI_BITFIELDS: 32 bit
+| @nktkas/bmp   |         34.4 µs |        29,110 | ( 26.5 µs …   3.6 ms) |  30.7 µs |  91.8 µs | 134.1 µs |
+```
+
+> If there's a library you'd like added to the benchmarks, please open an issue.
 
 </details>

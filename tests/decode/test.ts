@@ -1,5 +1,5 @@
 /**
- * For testing, we use sample images from Jason Summers' BMP Suite (https://entropymine.com/jason/bmpsuite/).
+ * Compares decoded BMPs against reference PNGs from the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/).
  */
 
 // deno-lint-ignore-file no-import-prefix
@@ -9,37 +9,7 @@ import { exists } from "jsr:@std/fs@^1.0.19";
 import sharp from "npm:sharp@^0.34.4";
 import pixelmatch from "npm:pixelmatch@^7.1.0";
 
-async function compareDecodeResult(bmpBuffer: Uint8Array, pngBuffer: Uint8Array) {
-  let bmp: ReturnType<typeof decode>;
-  try {
-    bmp = decode(bmpBuffer);
-  } catch (error) {
-    // for BI_JPEG and BI_PNG, we test `extractCompressedData` instead of `decode`
-    if (error instanceof Error && error.message.includes('Use "extractCompressedData" to')) {
-      const extracted = extractCompressedData(bmpBuffer);
-      const raw = await sharp(extracted.data).raw().toBuffer({ resolveWithObject: true });
-      bmp = { width: raw.info.width, height: raw.info.height, channels: raw.info.channels as 3 | 4, data: raw.data };
-    } else {
-      throw error;
-    }
-  }
-
-  const png = await sharp(pngBuffer).raw().toBuffer({ resolveWithObject: true });
-
-  assertEquals(bmp.width, png.info.width);
-  assertEquals(bmp.height, png.info.height);
-
-  const diff = pixelmatch(
-    addAlphaChannel(bmp.data, bmp.channels),
-    addAlphaChannel(png.data, png.info.channels as 1 | 3 | 4),
-    undefined,
-    bmp.width,
-    bmp.height,
-    { threshold: 0.004 }, // Allow very small differences (due to different rounding strategies)
-  );
-  assertEquals(diff, 0, `Found ${diff} different pixels`);
-}
-
+/** Converts grayscale/RGB/RGBA to RGBA for pixelmatch comparison */
 function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
   if (channels === 1) {
     // Grayscale to RGBA
@@ -66,40 +36,78 @@ function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
   return data; // Already RGBA
 }
 
-Deno.test('Decode "good" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/bmpsuite-2.8/g")) {
-    if (!sample.name.endsWith(".bmp")) continue;
-    await t.step(sample.name, async () => {
-      const bmpBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/g/${sample.name}`);
-      const pngBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/g/${sample.name.replace(/\.bmp$/, ".png")}`);
-      await compareDecodeResult(bmpBuffer, pngBuffer);
-    });
-  }
-});
+/** Compares decoded BMP with PNG reference */
+async function runTest(filePath: string) {
+  const bmpBuffer = await Deno.readFile(`./tests/_bmpsuite-2.8${filePath}`);
+  const pngBuffer = await Deno.readFile(`./tests/_bmpsuite-2.8${filePath.replace(/\.bmp$/, ".png")}`);
 
-Deno.test('Decode "questionable" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/bmpsuite-2.8/q")) {
-    if (!sample.name.endsWith(".bmp")) continue;
-    await t.step(sample.name, async () => {
-      const bmpBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/q/${sample.name}`);
-      const pngBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/q/${sample.name.replace(/\.bmp$/, ".png")}`);
-      await compareDecodeResult(bmpBuffer, pngBuffer);
-    });
+  // Step 1: Decode BMP
+  let bmp: ReturnType<typeof decode>;
+  try {
+    bmp = decode(bmpBuffer);
+  } catch (error) {
+    // for BI_JPEG and BI_PNG, we test `extractCompressedData` instead of `decode`
+    if (error instanceof Error && error.message.includes('Use "extractCompressedData" to')) {
+      const extracted = extractCompressedData(bmpBuffer);
+      const raw = await sharp(extracted.data).raw().toBuffer({ resolveWithObject: true });
+      bmp = { width: raw.info.width, height: raw.info.height, channels: raw.info.channels as 3 | 4, data: raw.data };
+    } else {
+      throw error;
+    }
   }
-});
 
-Deno.test('Decode "bad" BMP', async (t) => {
-  for await (const sample of Deno.readDir("./tests/bmpsuite-2.8/b")) {
-    if (!sample.name.endsWith(".bmp")) continue;
-    const hasPng = await exists(`./tests/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
-    await t.step({
-      name: sample.name,
-      fn: async () => {
-        const bmpBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/b/${sample.name}`);
-        const pngBuffer = await Deno.readFile(`./tests/bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
-        await compareDecodeResult(bmpBuffer, pngBuffer);
-      },
-      ignore: !hasPng,
-    });
-  }
+  // Step 2: Decode PNG using sharp
+  const png = await sharp(pngBuffer).raw().toBuffer({ resolveWithObject: true });
+
+  // Step 3: Compare results
+  assertEquals(bmp.width, png.info.width, "Width mismatch");
+  assertEquals(bmp.height, png.info.height, "Height mismatch");
+
+  // Pixel-by-pixel comparison
+  const diff = pixelmatch(
+    addAlphaChannel(bmp.data, bmp.channels),
+    addAlphaChannel(png.data, png.info.channels as 1 | 3 | 4),
+    undefined,
+    bmp.width,
+    bmp.height,
+    { threshold: 0.004 }, // Allow very small differences (due to different rounding strategies)
+  );
+  assertEquals(diff, 0, "Found different pixels");
+}
+
+Deno.test("Decode", async (t) => {
+  await t.step("'good' BMPs", async (t) => {
+    for await (const sample of Deno.readDir("./tests/_bmpsuite-2.8/g")) {
+      if (!sample.name.endsWith(".bmp")) continue;
+
+      await t.step(sample.name, async () => {
+        await runTest(`/g/${sample.name}`);
+      });
+    }
+  });
+
+  await t.step("'questionable' BMPs", async (t) => {
+    for await (const sample of Deno.readDir("./tests/_bmpsuite-2.8/q")) {
+      if (!sample.name.endsWith(".bmp")) continue;
+
+      await t.step(sample.name, async () => {
+        await runTest(`/q/${sample.name}`);
+      });
+    }
+  });
+
+  await t.step("'bad' BMPs", async (t) => {
+    for await (const sample of Deno.readDir("./tests/_bmpsuite-2.8/b")) {
+      if (!sample.name.endsWith(".bmp")) continue;
+
+      const hasPng = await exists(`./tests/_bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
+      await t.step({
+        name: sample.name,
+        fn: async () => {
+          await runTest(`/b/${sample.name}`);
+        },
+        ignore: !hasPng,
+      });
+    }
+  });
 });

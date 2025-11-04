@@ -70,7 +70,7 @@ export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImag
   );
 
   // 6. Process pixels
-  // Separate loops for each combination to eliminate branching in hot path (for performance)
+  // OPTIMIZATION: Separate loops for each combination to eliminate branching in hot path
   if (biBitCount === 16) {
     if (channels === 4) {
       for (let y = 0; y < absHeight; y++) {

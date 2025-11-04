@@ -119,45 +119,45 @@ function runBench(group: string, data: Uint8Array<ArrayBuffer>) {
 
 // -------------------- BI_RGB --------------------
 
-const pal1bg = await Deno.readFile("./tests/bmpsuite-2.8/g/pal1bg.bmp");
+const pal1bg = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal1bg.bmp");
 runBench("BI_RGB: 1 bit", pal1bg);
 
-const pal1 = await Deno.readFile("./tests/bmpsuite-2.8/g/pal1.bmp");
+const pal1 = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal1.bmp");
 runBench("BI_RGB: 1 bit (grayscale)", pal1);
 
-const pal4 = await Deno.readFile("./tests/bmpsuite-2.8/g/pal4.bmp");
+const pal4 = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4.bmp");
 runBench("BI_RGB: 4 bit", pal4);
 
-const pal4gs = await Deno.readFile("./tests/bmpsuite-2.8/g/pal4gs.bmp");
+const pal4gs = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4gs.bmp");
 runBench("BI_RGB: 4 bit (grayscale)", pal4gs);
 
-const pal8 = await Deno.readFile("./tests/bmpsuite-2.8/g/pal8.bmp");
+const pal8 = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8.bmp");
 runBench("BI_RGB: 8 bit", pal8);
 
-const pal8gs = await Deno.readFile("./tests/bmpsuite-2.8/g/pal8gs.bmp");
+const pal8gs = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8gs.bmp");
 runBench("BI_RGB: 8 bit (grayscale)", pal8gs);
 
-const rgb16 = await Deno.readFile("./tests/bmpsuite-2.8/g/rgb16.bmp");
+const rgb16 = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb16.bmp");
 runBench("BI_RGB: 16 bit", rgb16);
 
-const rgb24 = await Deno.readFile("./tests/bmpsuite-2.8/g/rgb24.bmp");
+const rgb24 = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb24.bmp");
 runBench("BI_RGB: 24 bit", rgb24);
 
-const rgb32 = await Deno.readFile("./tests/bmpsuite-2.8/g/rgb32.bmp");
+const rgb32 = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb32.bmp");
 runBench("BI_RGB: 32 bit", rgb32);
 
 // -------------------- BI_RLE --------------------
 
-const pal4rle = await Deno.readFile("./tests/bmpsuite-2.8/g/pal4rle.bmp");
+const pal4rle = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4rle.bmp");
 runBench("BI_RLE: 4 bit", pal4rle);
 
-const pal8rle = await Deno.readFile("./tests/bmpsuite-2.8/g/pal8rle.bmp");
+const pal8rle = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8rle.bmp");
 runBench("BI_RLE: 8 bit", pal8rle);
 
 // -------------------- BI_BITFIELDS --------------------
 
-const rgb16bfdef = await Deno.readFile("./tests/bmpsuite-2.8/g/rgb16bfdef.bmp");
+const rgb16bfdef = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb16bfdef.bmp");
 runBench("BI_BITFIELDS: 16 bit", rgb16bfdef);
 
-const rgb32bfdef = await Deno.readFile("./tests/bmpsuite-2.8/g/rgb32bfdef.bmp");
+const rgb32bfdef = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb32bfdef.bmp");
 runBench("BI_BITFIELDS: 32 bit", rgb32bfdef);

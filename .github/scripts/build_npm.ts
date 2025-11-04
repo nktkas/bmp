@@ -17,7 +17,7 @@ await build({
   package: {
     name: "@nktkas/bmp",
     version: denoJson.version,
-    description: "Fast and lightweight BMP image encoder/decoder",
+    description: "Fast and lightweight BMP image encoder/decoder.",
     keywords: [
       "bmp",
       "bitmap",
