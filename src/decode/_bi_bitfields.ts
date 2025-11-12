@@ -1,5 +1,6 @@
 import type { RawImageData } from "./mod.ts";
 import type { BMPHeader } from "./_bmpHeader.ts";
+import type { DecodeOptions } from "./_types.ts";
 
 /** Extracted bit mask information */
 interface BitMasks {
@@ -26,7 +27,7 @@ interface ColorScalingLUTs {
 /**
  * Converts a BMP with BI_BITFIELDS compression to a raw pixel image data
  */
-export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
+export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader, options?: DecodeOptions): RawImageData {
   // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biBitCount, biCompression } = header.infoHeader;
@@ -55,19 +56,20 @@ export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImag
   // 3. Calculate row stride and pixel parameters
   const stride = Math.ceil((biBitCount * absWidth) / 32) * 4;
   const bytesPerPixel = biBitCount / 8;
-  const channels = alpha.bits > 0 ? 4 : 3;
+  const channels = options?.desiredChannels ?? (alpha.bits > 0 ? 4 : 3);
 
   // 4. Allocate output buffer and create DataView
   const output = new Uint8Array(absWidth * absHeight * channels);
   const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
 
   // 5. Create lookup tables for fast color scaling
-  const { redLUT, greenLUT, blueLUT, alphaLUT } = createColorScalingLookupTables(
+  let { redLUT, greenLUT, blueLUT, alphaLUT } = createColorScalingLookupTables(
     red.bits,
     green.bits,
     blue.bits,
     alpha.bits,
   );
+  alphaLUT = !alphaLUT && channels === 4 ? new Uint8Array(256).fill(255) : alphaLUT;
 
   // 6. Process pixels
   // OPTIMIZATION: Separate loops for each combination to eliminate branching in hot path
@@ -153,7 +155,7 @@ export function BI_BITFIELDS_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImag
   return {
     width: absWidth,
     height: absHeight,
-    channels: channels,
+    channels,
     data: output,
   };
 }

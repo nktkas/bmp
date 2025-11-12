@@ -1,5 +1,6 @@
 import type { RawImageData } from "./mod.ts";
 import type { BMPHeader } from "./_bmpHeader.ts";
+import type { DecodeOptions } from "./_types.ts";
 import { extractColorTable } from "./_colorTable.ts";
 
 // Modified Huffman (CCITT Group 3 1D) code tables for white runs
@@ -203,7 +204,7 @@ const EOL = "000000000001"; // End of line marker
 /**
  * Converts a BMP with Modified Huffman (OS/2 Huffman 1D) compression to a raw pixel image data
  */
-export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
+export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader, options?: DecodeOptions): RawImageData {
   // 0. Get header data and validate
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biCompression, biSize, biBitCount, biClrUsed } = header.infoHeader;
@@ -223,9 +224,14 @@ export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageD
   // 2. Extract color palette
   const palette = extractColorTable(bmp, bfOffBits, biSize, biBitCount, biClrUsed);
 
-  // 3. Check if palette is grayscale (R=G=B for all colors)
-  const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
-  const channels = isGrayscale ? 1 : 3;
+  // 3. Determine channels based on desiredChannels or auto-detect
+  let channels: 1 | 3 | 4;
+  if (options?.desiredChannels !== undefined) {
+    channels = options.desiredChannels;
+  } else {
+    const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
+    channels = isGrayscale ? 1 : 3;
+  }
 
   // 4. Allocate output buffer
   const output = new Uint8Array(absWidth * absHeight * channels);
@@ -233,8 +239,8 @@ export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageD
   // 5. Decode Huffman-compressed data
   const pixels = decompressHuffman(bmp, bfOffBits, absWidth, absHeight);
 
-  // 6. Process pixels (palette indices to RGB/Grayscale)
-  if (isGrayscale) {
+  // 6. Process pixels (palette indices to Grayscale/RGB/RGBA)
+  if (channels === 1) {
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : (absHeight - 1 - y);
       let srcOffset = srcY * absWidth;
@@ -244,7 +250,7 @@ export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageD
         output[dstOffset++] = palette[pixels[srcOffset++]].red;
       }
     }
-  } else {
+  } else if (channels === 3) {
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : (absHeight - 1 - y);
       let srcOffset = srcY * absWidth;
@@ -257,12 +263,26 @@ export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageD
         output[dstOffset++] = color.blue;
       }
     }
+  } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : (absHeight - 1 - y);
+      let srcOffset = srcY * absWidth;
+      let dstOffset = y * absWidth * 4;
+
+      for (let x = 0; x < absWidth; x++) {
+        const color = palette[pixels[srcOffset++]];
+        output[dstOffset++] = color.red;
+        output[dstOffset++] = color.green;
+        output[dstOffset++] = color.blue;
+        output[dstOffset++] = 255;
+      }
+    }
   }
 
   return {
     width: absWidth,
     height: absHeight,
-    channels: channels,
+    channels,
     data: output,
   };
 }

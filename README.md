@@ -63,6 +63,32 @@ const raw = decode(bmp);
 //                                 may be 1 (grayscale), 3 (RGB), or 4 (RGBA)
 ```
 
+#### Advanced options
+
+```ts
+interface DecodeOptions {
+  /**
+   * Desired number of channels in the output.
+   * - 3 (RGB) - Convert to RGB format
+   * - 4 (RGBA) - Convert to RGBA format
+   *
+   * Default: Auto-detected from image data
+   * - Images with alpha channel → 4 (RGBA)
+   * - Grayscale images → 1 (grayscale)
+   * - All other images → 3 (RGB)
+   *
+   * Performance: Using `desiredChannels` parameter is faster than manual conversion after decoding.
+   */
+  desiredChannels?: 3 | 4;
+}
+```
+
+```ts
+// Example: Force RGBA output
+const raw = decode(bmp, { desiredChannels: 4 });
+// { width: 1, height: 1, channels: 4, data: Uint8Array(4) [0, 0, 0, 255] }
+```
+
 #### BI_JPEG / BI_PNG compressed images
 
 These formats use external compression (JPEG/PNG) for the pixel data, which is not directly supported by the BMP format.
@@ -411,6 +437,170 @@ summary
      1.89x faster than @cwasm/nsbmp
      1.93x faster than bmpimagejs
      5.81x faster than bmp-ts
+```
+
+```
+    CPU | AMD Ryzen 9 9950X3D 16-Core Processor
+Runtime | Deno 2.5.6 (x86_64-pc-windows-msvc)
+
+| benchmark                   | time/iter (avg) |        iter/s |      (min … max)      |      p75 |      p99 |     p995 |
+| --------------------------- | --------------- | ------------- | --------------------- | -------- | -------- | -------- |
+
+group desiredChannels: BI_RGB 1-bit
+| decode + convert to RGB     |         13.0 µs |        77,190 | (  6.3 µs …   3.2 ms) |  11.5 µs |  57.4 µs |  78.7 µs |
+| desiredChannels: 3 (RGB)    |         13.3 µs |        75,220 | (  6.4 µs … 898.1 µs) |  11.6 µs |  60.8 µs |  93.7 µs |
+| decode + convert to RGBA    |         31.7 µs |        31,530 | ( 16.1 µs …   1.1 ms) |  27.9 µs | 160.5 µs | 225.3 µs |
+| desiredChannels: 4 (RGBA)   |         16.3 µs |        61,420 | (  7.3 µs …   1.2 ms) |  13.9 µs |  77.5 µs | 156.9 µs |
+
+summary
+  decode + convert to RGB
+     1.03x faster than desiredChannels: 3 (RGB)
+     1.26x faster than desiredChannels: 4 (RGBA)
+     2.45x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 1-bit grayscale
+| decode + convert to RGB     |         18.2 µs |        54,850 | (  9.8 µs …   1.8 ms) |  16.5 µs |  65.7 µs | 113.2 µs |
+| desiredChannels: 3 (RGB)    |         13.2 µs |        75,750 | (  6.3 µs …   2.5 ms) |  11.5 µs |  56.8 µs |  79.0 µs |
+| decode + convert to RGBA    |         20.1 µs |        49,800 | ( 11.9 µs …   2.5 ms) |  19.0 µs |  67.9 µs | 100.8 µs |
+| desiredChannels: 4 (RGBA)   |         14.2 µs |        70,350 | (  7.2 µs …   2.7 ms) |  13.7 µs |  48.0 µs |  70.0 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.08x faster than desiredChannels: 4 (RGBA)
+     1.38x faster than decode + convert to RGB
+     1.52x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 4-bit
+| decode + convert to RGB     |         15.0 µs |        66,740 | (  9.0 µs …   2.6 ms) |  14.1 µs |  46.4 µs |  70.0 µs |
+| desiredChannels: 3 (RGB)    |         14.7 µs |        67,850 | (  9.0 µs …   2.6 ms) |  13.7 µs |  41.2 µs |  63.5 µs |
+| decode + convert to RGBA    |         31.9 µs |        31,350 | ( 18.7 µs …   4.2 ms) |  30.3 µs |  99.9 µs | 158.3 µs |
+| desiredChannels: 4 (RGBA)   |         17.6 µs |        56,780 | ( 10.0 µs …   2.9 ms) |  16.4 µs |  45.8 µs |  74.1 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.02x faster than decode + convert to RGB
+     1.20x faster than desiredChannels: 4 (RGBA)
+     2.16x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 4-bit grayscale
+| decode + convert to RGB     |         18.1 µs |        55,270 | ( 11.7 µs …   4.0 ms) |  17.9 µs |  53.2 µs |  76.6 µs |
+| desiredChannels: 3 (RGB)    |         13.3 µs |        75,230 | (  9.0 µs …   2.4 ms) |  13.7 µs |  23.7 µs |  59.7 µs |
+| decode + convert to RGBA    |         19.2 µs |        51,950 | ( 13.6 µs …   2.6 ms) |  20.8 µs |  55.4 µs |  79.6 µs |
+| desiredChannels: 4 (RGBA)   |         13.8 µs |        72,240 | ( 10.0 µs …   3.3 ms) |  15.9 µs |  25.4 µs |  60.1 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.04x faster than desiredChannels: 4 (RGBA)
+     1.36x faster than decode + convert to RGB
+     1.45x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 8-bit
+| decode + convert to RGB     |         12.8 µs |        78,430 | ( 11.3 µs … 958.1 µs) |  12.4 µs |  20.0 µs |  23.5 µs |
+| desiredChannels: 3 (RGB)    |         12.7 µs |        79,000 | ( 11.3 µs … 992.3 µs) |  12.4 µs |  18.4 µs |  25.2 µs |
+| decode + convert to RGBA    |         27.3 µs |        36,570 | ( 21.3 µs …   3.7 ms) |  30.7 µs |  53.4 µs |  96.4 µs |
+| desiredChannels: 4 (RGBA)   |         15.8 µs |        63,240 | ( 12.7 µs …   3.1 ms) |  15.0 µs |  32.3 µs |  34.7 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.01x faster than decode + convert to RGB
+     1.25x faster than desiredChannels: 4 (RGBA)
+     2.16x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 8-bit grayscale
+| decode + convert to RGB     |         16.7 µs |        60,050 | ( 14.6 µs …   2.6 ms) |  16.1 µs |  25.0 µs |  31.1 µs |
+| desiredChannels: 3 (RGB)    |         13.1 µs |        76,410 | ( 11.4 µs …   2.1 ms) |  12.6 µs |  21.1 µs |  22.2 µs |
+| decode + convert to RGBA    |         19.4 µs |        51,510 | ( 16.0 µs …   2.9 ms) |  18.6 µs |  30.6 µs |  40.3 µs |
+| desiredChannels: 4 (RGBA)   |         14.7 µs |        68,180 | ( 12.7 µs …   3.3 ms) |  14.1 µs |  24.0 µs |  26.5 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.12x faster than desiredChannels: 4 (RGBA)
+     1.27x faster than decode + convert to RGB
+     1.48x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 16-bit
+| decode + convert to RGB     |         13.1 µs |        76,630 | ( 11.2 µs …   3.0 ms) |  12.0 µs |  21.7 µs |  26.2 µs |
+| desiredChannels: 3 (RGB)    |         12.9 µs |        77,610 | ( 11.1 µs …   3.6 ms) |  12.0 µs |  22.4 µs |  25.4 µs |
+| decode + convert to RGBA    |         24.6 µs |        40,660 | ( 20.6 µs …   2.2 ms) |  22.2 µs |  47.3 µs |  58.8 µs |
+| desiredChannels: 4 (RGBA)   |         15.7 µs |        63,870 | ( 12.7 µs …   3.4 ms) |  14.2 µs |  30.0 µs |  33.5 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.01x faster than decode + convert to RGB
+     1.22x faster than desiredChannels: 4 (RGBA)
+     1.91x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 24-bit
+| decode + convert to RGB     |         10.6 µs |        94,250 | (  8.4 µs …   1.8 ms) |   9.6 µs |  18.7 µs |  25.2 µs |
+| desiredChannels: 3 (RGB)    |         11.5 µs |        86,630 | (  8.3 µs …   2.9 ms) |  13.1 µs |  22.9 µs |  24.6 µs |
+| decode + convert to RGBA    |         22.1 µs |        45,310 | ( 18.1 µs …   1.8 ms) |  19.7 µs |  43.1 µs |  68.2 µs |
+| desiredChannels: 4 (RGBA)   |         12.4 µs |        80,550 | (  9.9 µs …   3.3 ms) |  10.9 µs |  27.2 µs |  29.4 µs |
+
+summary
+  decode + convert to RGB
+     1.09x faster than desiredChannels: 3 (RGB)
+     1.17x faster than desiredChannels: 4 (RGBA)
+     2.08x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RGB 32-bit
+| decode + convert to RGB     |         13.8 µs |        72,340 | ( 10.7 µs …   3.7 ms) |  15.2 µs |  21.2 µs |  24.6 µs |
+| desiredChannels: 3 (RGB)    |         12.5 µs |        79,970 | ( 10.7 µs … 856.5 µs) |  11.5 µs |  22.6 µs |  25.9 µs |
+| decode + convert to RGBA    |         24.0 µs |        41,670 | ( 20.2 µs …   3.8 ms) |  21.8 µs |  49.9 µs |  55.9 µs |
+| desiredChannels: 4 (RGBA)   |         14.4 µs |        69,270 | ( 11.9 µs …   1.1 ms) |  13.1 µs |  28.8 µs |  32.4 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.10x faster than decode + convert to RGB
+     1.15x faster than desiredChannels: 4 (RGBA)
+     1.92x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RLE4
+| decode + convert to RGB     |         11.5 µs |        87,260 | (  9.0 µs …   3.6 ms) |  10.9 µs |  21.8 µs |  25.0 µs |
+| desiredChannels: 3 (RGB)    |         10.9 µs |        91,950 | (  9.2 µs …   3.6 ms) |  10.0 µs |  19.1 µs |  23.4 µs |
+| decode + convert to RGBA    |         22.8 µs |        43,940 | ( 18.9 µs …   1.4 ms) |  20.4 µs |  48.3 µs |  64.6 µs |
+| desiredChannels: 4 (RGBA)   |         13.4 µs |        74,900 | ( 10.8 µs …   3.1 ms) |  11.8 µs |  25.0 µs |  32.7 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.05x faster than decode + convert to RGB
+     1.23x faster than desiredChannels: 4 (RGBA)
+     2.09x faster than decode + convert to RGBA
+
+group desiredChannels: BI_RLE8
+| decode + convert to RGB     |         13.8 µs |        72,400 | ( 11.8 µs …   1.9 ms) |  13.3 µs |  22.2 µs |  24.4 µs |
+| desiredChannels: 3 (RGB)    |         13.6 µs |        73,370 | ( 11.9 µs …   2.1 ms) |  13.2 µs |  22.3 µs |  25.3 µs |
+| decode + convert to RGBA    |         26.1 µs |        38,260 | ( 21.6 µs …   1.3 ms) |  23.6 µs |  54.8 µs |  79.7 µs |
+| desiredChannels: 4 (RGBA)   |         17.4 µs |        57,490 | ( 13.3 µs …   3.5 ms) |  19.0 µs |  36.4 µs |  52.7 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.01x faster than decode + convert to RGB
+     1.28x faster than desiredChannels: 4 (RGBA)
+     1.92x faster than decode + convert to RGBA
+
+group desiredChannels: BI_BITFIELDS 16-bit
+| decode + convert to RGB     |         15.9 µs |        62,710 | ( 13.8 µs …   1.4 ms) |  15.0 µs |  25.0 µs |  43.3 µs |
+| desiredChannels: 3 (RGB)    |         15.8 µs |        63,270 | ( 13.3 µs …   1.1 ms) |  14.7 µs |  27.3 µs |  41.0 µs |
+| decode + convert to RGBA    |         27.1 µs |        36,920 | ( 23.1 µs …   2.1 ms) |  24.9 µs |  56.4 µs | 102.8 µs |
+| desiredChannels: 4 (RGBA)   |         18.8 µs |        53,090 | ( 15.7 µs …   3.5 ms) |  17.4 µs |  34.9 µs |  44.4 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.01x faster than decode + convert to RGB
+     1.19x faster than desiredChannels: 4 (RGBA)
+     1.71x faster than decode + convert to RGBA
+
+group desiredChannels: BI_BITFIELDS 32-bit
+| decode + convert to RGB     |         17.8 µs |        56,120 | ( 14.5 µs …   1.3 ms) |  19.1 µs |  31.7 µs |  55.5 µs |
+| desiredChannels: 3 (RGB)    |         17.4 µs |        57,400 | ( 14.5 µs …   4.0 ms) |  16.5 µs |  26.6 µs |  41.0 µs |
+| decode + convert to RGBA    |         29.5 µs |        33,850 | ( 24.3 µs …   2.0 ms) |  27.5 µs |  61.7 µs |  99.9 µs |
+| desiredChannels: 4 (RGBA)   |         19.2 µs |        52,160 | ( 16.8 µs … 794.9 µs) |  18.3 µs |  30.2 µs |  36.5 µs |
+
+summary
+  desiredChannels: 3 (RGB)
+     1.02x faster than decode + convert to RGB
+     1.10x faster than desiredChannels: 4 (RGBA)
+     1.70x faster than decode + convert to RGBA
 ```
 
 > If there's a library you'd like added to the benchmarks, please open an issue.

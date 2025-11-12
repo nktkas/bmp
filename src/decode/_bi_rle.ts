@@ -1,11 +1,12 @@
 import type { RawImageData } from "./mod.ts";
 import type { BMPHeader } from "./_bmpHeader.ts";
+import type { DecodeOptions } from "./_types.ts";
 import { extractColorTable, type RGBQUAD } from "./_colorTable.ts";
 
 /**
  * Converts a BMP with RLE compression to a raw pixel image data
  */
-export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
+export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader, options?: DecodeOptions): RawImageData {
   const { bfOffBits } = header.fileHeader;
   const { biWidth, biHeight, biCompression, biSize, biBitCount, biClrUsed } = header.infoHeader;
 
@@ -17,20 +18,21 @@ export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData 
   }
 
   if (isRLE24) {
-    const data = decompressRLE24(bmp, bfOffBits, biWidth, biHeight);
+    const channels = options?.desiredChannels ?? 3;
+    const data = decompressRLE24(bmp, bfOffBits, biWidth, biHeight, channels);
 
     return {
       width: Math.abs(biWidth),
       height: Math.abs(biHeight),
-      channels: 3,
+      channels,
       data,
     };
   } else {
     const palette = extractColorTable(bmp, bfOffBits, biSize, biBitCount as 1 | 2 | 4 | 8, biClrUsed);
 
     const { data, channels } = biCompression === 1
-      ? decompressRLE8(bmp, bfOffBits, biWidth, biHeight, palette)
-      : decompressRLE4(bmp, bfOffBits, biWidth, biHeight, palette);
+      ? decompressRLE8(bmp, bfOffBits, biWidth, biHeight, palette, options)
+      : decompressRLE4(bmp, bfOffBits, biWidth, biHeight, palette, options);
 
     return {
       width: Math.abs(biWidth),
@@ -42,19 +44,20 @@ export function BI_RLE_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData 
 }
 
 /**
- * Decompresses RLE24-encoded BMP data directly to RGB output
+ * Decompresses RLE24-encoded BMP data directly to RGB or RGBA output
  */
 function decompressRLE24(
   bmp: Uint8Array,
   bfOffBits: number,
   biWidth: number,
   biHeight: number,
+  channels: 3 | 4,
 ): Uint8Array {
   const absWidth = Math.abs(biWidth);
   const absHeight = Math.abs(biHeight);
   const isTopDown = biHeight < 0;
 
-  const output = new Uint8Array(absWidth * absHeight * 3);
+  const output = new Uint8Array(absWidth * absHeight * channels);
 
   let x = 0;
   let y = isTopDown ? 0 : absHeight - 1;
@@ -83,16 +86,29 @@ function decompressRLE24(
           break;
         }
         default: { // Absolute mode (uncompressed pixels)
-          let pos = (y * absWidth + x) * 3;
+          let pos = (y * absWidth + x) * channels;
 
-          for (let j = 0; j < byte; j++) {
-            // Read BGR triplet and write as RGB
-            const b = bmp[i++];
-            const g = bmp[i++];
-            const r = bmp[i++];
-            output[pos++] = r;
-            output[pos++] = g;
-            output[pos++] = b;
+          if (channels === 3) {
+            for (let j = 0; j < byte; j++) {
+              // Read BGR triplet and write as RGB
+              const b = bmp[i++];
+              const g = bmp[i++];
+              const r = bmp[i++];
+              output[pos++] = r;
+              output[pos++] = g;
+              output[pos++] = b;
+            }
+          } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+            for (let j = 0; j < byte; j++) {
+              // Read BGR triplet and write as RGBA
+              const b = bmp[i++];
+              const g = bmp[i++];
+              const r = bmp[i++];
+              output[pos++] = r;
+              output[pos++] = g;
+              output[pos++] = b;
+              output[pos++] = 255;
+            }
           }
           x += byte;
 
@@ -103,18 +119,28 @@ function decompressRLE24(
       }
     } else {
       // Encoded mode (repeat BGR triplet)
-      let pos = (y * absWidth + x) * 3;
+      let pos = (y * absWidth + x) * channels;
 
       // Read BGR triplet
       const b = bmp[i++];
       const g = bmp[i++];
       const r = bmp[i++];
 
-      for (let j = 0; j < count; j++) {
-        // Write as RGB
-        output[pos++] = r;
-        output[pos++] = g;
-        output[pos++] = b;
+      if (channels === 3) {
+        for (let j = 0; j < count; j++) {
+          // Write as RGB
+          output[pos++] = r;
+          output[pos++] = g;
+          output[pos++] = b;
+        }
+      } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+        for (let j = 0; j < count; j++) {
+          // Write as RGBA
+          output[pos++] = r;
+          output[pos++] = g;
+          output[pos++] = b;
+          output[pos++] = 255;
+        }
       }
       x += count;
     }
@@ -124,7 +150,7 @@ function decompressRLE24(
 }
 
 /**
- * Decompresses RLE8-encoded BMP data directly to RGB/grayscale output
+ * Decompresses RLE8-encoded BMP data directly to grayscale/RGB/RGBA output
  */
 function decompressRLE8(
   bmp: Uint8Array,
@@ -132,13 +158,19 @@ function decompressRLE8(
   biWidth: number,
   biHeight: number,
   palette: RGBQUAD[],
-): { data: Uint8Array; channels: 1 | 3 } {
+  options?: DecodeOptions,
+): { data: Uint8Array; channels: 1 | 3 | 4 } {
   const absWidth = Math.abs(biWidth);
   const absHeight = Math.abs(biHeight);
   const isTopDown = biHeight < 0;
 
-  const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
-  const pixelStride = isGrayscale ? 1 : 3;
+  let pixelStride: 1 | 3 | 4;
+  if (options?.desiredChannels !== undefined) {
+    pixelStride = options.desiredChannels;
+  } else {
+    const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
+    pixelStride = isGrayscale ? 1 : 3;
+  }
 
   const output = new Uint8Array(absWidth * absHeight * pixelStride);
 
@@ -171,18 +203,27 @@ function decompressRLE8(
         default: { // Absolute mode (uncompressed pixels)
           let pos = (y * absWidth + x) * pixelStride;
 
-          if (isGrayscale) {
+          if (pixelStride === 1) {
             for (let j = 0; j < byte; j++) {
               // Read color from palette and write as grayscale
               output[pos++] = palette[bmp[i++]].red;
             }
-          } else {
+          } else if (pixelStride === 3) {
             for (let j = 0; j < byte; j++) {
               // Read color from palette and write as RGB
               const color = palette[bmp[i++]];
               output[pos++] = color.red;
               output[pos++] = color.green;
               output[pos++] = color.blue;
+            }
+          } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+            for (let j = 0; j < byte; j++) {
+              // Read color from palette and write as RGBA
+              const color = palette[bmp[i++]];
+              output[pos++] = color.red;
+              output[pos++] = color.green;
+              output[pos++] = color.blue;
+              output[pos++] = 255;
             }
           }
           x += byte;
@@ -198,17 +239,25 @@ function decompressRLE8(
       // Read color from palette
       const color = palette[bmp[i++]];
 
-      if (isGrayscale) {
+      if (pixelStride === 1) {
         for (let j = 0; j < count; j++) {
           // Write as grayscale
           output[pos++] = color.red;
         }
-      } else {
+      } else if (pixelStride === 3) {
         for (let j = 0; j < count; j++) {
           // Write as RGB
           output[pos++] = color.red;
           output[pos++] = color.green;
           output[pos++] = color.blue;
+        }
+      } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+        for (let j = 0; j < count; j++) {
+          // Write as RGBA
+          output[pos++] = color.red;
+          output[pos++] = color.green;
+          output[pos++] = color.blue;
+          output[pos++] = 255;
         }
       }
       x += count;
@@ -219,7 +268,7 @@ function decompressRLE8(
 }
 
 /**
- * Decompresses RLE4-encoded BMP data directly to RGB/grayscale output
+ * Decompresses RLE4-encoded BMP data directly to grayscale/RGB/RGBA output
  */
 function decompressRLE4(
   bmp: Uint8Array,
@@ -227,13 +276,19 @@ function decompressRLE4(
   biWidth: number,
   biHeight: number,
   palette: RGBQUAD[],
-): { data: Uint8Array; channels: 1 | 3 } {
+  options?: DecodeOptions,
+): { data: Uint8Array; channels: 1 | 3 | 4 } {
   const absWidth = Math.abs(biWidth);
   const absHeight = Math.abs(biHeight);
   const isTopDown = biHeight < 0;
 
-  const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
-  const pixelStride = isGrayscale ? 1 : 3;
+  let pixelStride: 1 | 3 | 4;
+  if (options?.desiredChannels !== undefined) {
+    pixelStride = options.desiredChannels;
+  } else {
+    const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
+    pixelStride = isGrayscale ? 1 : 3;
+  }
 
   const output = new Uint8Array(absWidth * absHeight * pixelStride);
 
@@ -267,7 +322,7 @@ function decompressRLE4(
           let pos = (y * absWidth + x) * pixelStride;
 
           const pairs = byte >> 1;
-          if (isGrayscale) {
+          if (pixelStride === 1) {
             for (let j = 0; j < pairs; j++) {
               const sourceByte = bmp[i++];
               const highNibble = (sourceByte >> 4) & 0xF;
@@ -284,7 +339,7 @@ function decompressRLE4(
 
               output[pos] = palette[highNibble].red;
             }
-          } else {
+          } else if (pixelStride === 3) {
             for (let j = 0; j < pairs; j++) {
               const sourceByte = bmp[i++];
               const highNibble = (sourceByte >> 4) & 0xF;
@@ -310,6 +365,36 @@ function decompressRLE4(
               output[pos++] = color.green;
               output[pos++] = color.blue;
             }
+          } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+            // pixelStride === 4
+            for (let j = 0; j < pairs; j++) {
+              const sourceByte = bmp[i++];
+              const highNibble = (sourceByte >> 4) & 0xF;
+              const lowNibble = sourceByte & 0xF;
+
+              // Read colors from palette and write as RGBA
+              const color1 = palette[highNibble];
+              output[pos++] = color1.red;
+              output[pos++] = color1.green;
+              output[pos++] = color1.blue;
+              output[pos++] = 255;
+              const color2 = palette[lowNibble];
+              output[pos++] = color2.red;
+              output[pos++] = color2.green;
+              output[pos++] = color2.blue;
+              output[pos++] = 255;
+            }
+
+            if (byte & 1) { // Odd count, read one more nibble
+              const sourceByte = bmp[i++];
+              const highNibble = (sourceByte >> 4) & 0xF;
+
+              const color = palette[highNibble];
+              output[pos++] = color.red;
+              output[pos++] = color.green;
+              output[pos++] = color.blue;
+              output[pos++] = 255;
+            }
           }
           x += byte;
 
@@ -331,14 +416,14 @@ function decompressRLE4(
       const color2 = palette[lowNibble];
 
       const pairs = count >> 1;
-      if (isGrayscale) {
+      if (pixelStride === 1) {
         for (let j = 0; j < pairs; j++) {
           // Write as grayscale
           output[pos++] = color1.red;
           output[pos++] = color2.red;
         }
         if (count & 1) output[pos] = color1.red; // Last odd pixel
-      } else {
+      } else if (pixelStride === 3) {
         for (let j = 0; j < pairs; j++) {
           // Write as RGB
           output[pos++] = color1.red;
@@ -352,6 +437,24 @@ function decompressRLE4(
           output[pos++] = color1.red;
           output[pos++] = color1.green;
           output[pos++] = color1.blue;
+        }
+      } else { // OPTIMIZATION: Separate loop for RGBA to eliminate branching in hot path
+        for (let j = 0; j < pairs; j++) {
+          // Write as RGBA
+          output[pos++] = color1.red;
+          output[pos++] = color1.green;
+          output[pos++] = color1.blue;
+          output[pos++] = 255;
+          output[pos++] = color2.red;
+          output[pos++] = color2.green;
+          output[pos++] = color2.blue;
+          output[pos++] = 255;
+        }
+        if (count & 1) { // Last odd pixel
+          output[pos++] = color1.red;
+          output[pos++] = color1.green;
+          output[pos++] = color1.blue;
+          output[pos++] = 255;
         }
       }
       x += count;

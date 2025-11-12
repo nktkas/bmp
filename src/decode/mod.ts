@@ -1,13 +1,18 @@
 import type { RawImageData } from "../_common.ts";
+import type { DecodeOptions } from "./_types.ts";
 import { readBMPHeader } from "./_bmpHeader.ts";
 import { BI_RGB_TO_RAW } from "./_bi_rgb.ts";
 import { BI_RLE_TO_RAW } from "./_bi_rle.ts";
 import { BI_BITFIELDS_TO_RAW } from "./_bi_bitfields.ts";
 import { BI_HUFFMAN_TO_RAW } from "./_bi_huffman.ts";
 
+// Re-export types
+export type { DecodeOptions } from "./_types.ts";
+
 /**
  * Converts a BMP image to a raw pixel image data
  * @param bmp The BMP array to convert
+ * @param options Optional decode options
  * @returns The raw pixel image data (width, height, channels, data)
  *
  * @example
@@ -41,23 +46,29 @@ import { BI_HUFFMAN_TO_RAW } from "./_bi_huffman.ts";
  *
  * const raw = decode(bmp);
  * // { width: 1, height: 1, channels: 3, data: Uint8Array(3) [0, 0, 0] }
+ * //                                 ^^^
+ * //                                 may be 1 (grayscale), 3 (RGB), or 4 (RGBA)
+ *
+ * // Force RGBA output
+ * const rgba = decode(bmp, { desiredChannels: 4 });
+ * // { width: 1, height: 1, channels: 4, data: Uint8Array(4) [0, 0, 0, 255] }
  * ```
  */
-export function decode(bmp: Uint8Array): RawImageData {
+export function decode(bmp: Uint8Array, options?: DecodeOptions): RawImageData {
   const header = readBMPHeader(bmp);
   const { biCompression, biBitCount } = header.infoHeader;
 
   if (biCompression === 0) { // BI_RGB
-    return BI_RGB_TO_RAW(bmp, header);
+    return BI_RGB_TO_RAW(bmp, header, options);
   }
   if (biCompression === 1 || biCompression === 2 || (biCompression === 4 && biBitCount === 24)) { // RLE8, RLE4, RLE24
-    return BI_RLE_TO_RAW(bmp, header);
+    return BI_RLE_TO_RAW(bmp, header, options);
   }
   if (biCompression === 3 && biBitCount === 1) { // BI_HUFFMAN
-    return BI_HUFFMAN_TO_RAW(bmp, header);
+    return BI_HUFFMAN_TO_RAW(bmp, header, options);
   }
   if (biCompression === 3 || biCompression === 6) { // BI_BITFIELDS, BI_ALPHABITFIELDS
-    return BI_BITFIELDS_TO_RAW(bmp, header);
+    return BI_BITFIELDS_TO_RAW(bmp, header, options);
   }
   if (biCompression === 4) { // BI_JPEG
     throw new Error(
