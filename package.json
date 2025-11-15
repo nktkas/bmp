@@ -1,0 +1,57 @@
+{
+  "name": "@nktkas/bmp",
+  "version": "1.3.0",
+  "description": "Fast and lightweight BMP image encoder/decoder.",
+  "keywords": [
+    "bmp",
+    "bitmap",
+    "encoder",
+    "decoder",
+    "image"
+  ],
+  "homepage": "https://github.com/nktkas/bmp",
+  "bugs": {
+    "url": "https://github.com/nktkas/bmp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nktkas/bmp.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "nktkas",
+    "email": "github.turk9@passmail.net",
+    "url": "https://github.com/nktkas"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": "./dist/mod.js",
+    "./decode": "./dist/decode/mod.js",
+    "./encode": "./dist/encode/mod.js"
+  },
+  "scripts": {
+    "bench:decode": "node --expose-gc ./tests/decode/bench.ts",
+    "bench:encode": "node --expose-gc ./tests/encode/bench.ts",
+    "dev:build": "npx tsc",
+    "dev:fmt": "npx deno fmt && npx sort-package-json",
+    "dev:lint": "npx deno lint",
+    "dev:typecheck": "npx deno check",
+    "test": "npx deno test -A || node --test"
+  },
+  "devDependencies": {
+    "@cwasm/nsbmp": "^0.1.3",
+    "@types/bmp-js": "^0.1.2",
+    "bmp-js": "^0.1.0",
+    "bmp-ts": "^1.0.9",
+    "bmpimagejs": "^1.0.4",
+    "fast-bmp": "^4.0.1",
+    "mitata": "^1.0.34",
+    "pixelmatch": "^7.1.0",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

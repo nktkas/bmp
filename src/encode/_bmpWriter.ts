@@ -9,13 +9,13 @@ import type { BitfieldMasks } from "./_bi_bitfields.ts";
  * - BI_BITFIELDS (3) - Uncompressed with custom RGB bit masks.
  * - BI_ALPHABITFIELDS (6) - Uncompressed with custom RGBA bit masks.
  */
-export const enum CompressionTypes {
-  BI_RGB = 0,
-  BI_RLE8 = 1,
-  BI_RLE4 = 2,
-  BI_BITFIELDS = 3,
-  BI_ALPHABITFIELDS = 6,
-}
+export const CompressionTypes = {
+  BI_RGB: 0,
+  BI_RLE8: 1,
+  BI_RLE4: 2,
+  BI_BITFIELDS: 3,
+  BI_ALPHABITFIELDS: 6,
+} as const;
 
 /**
  * BMP header format type. Determines header size and features.

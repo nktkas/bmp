@@ -3,13 +3,13 @@
  * by comparing against reference BMP files from the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/).
  */
 
-// deno-lint-ignore-file no-import-prefix
-import { decode, encode } from "@nktkas/bmp";
-import type { EncodeOptions } from "@nktkas/bmp";
+import assert from "node:assert";
+import test from "node:test";
+import fs from "node:fs/promises";
+import pixelmatch from "pixelmatch";
+import { decode, encode, type EncodeOptions } from "../../src/mod.ts";
 import { type BMPHeader, readBMPHeader } from "../../src/decode/_bmpHeader.ts";
 import { extractColorTable } from "../../src/decode/_colorTable.ts";
-import { assertEquals } from "jsr:@std/assert@^1.0.14";
-import pixelmatch from "npm:pixelmatch@^7.1.0";
 
 /** Maps header size to HeaderType string */
 function mapHeaderType(headerSize: number): "BITMAPINFOHEADER" | "BITMAPV4HEADER" | "BITMAPV5HEADER" {
@@ -86,7 +86,7 @@ function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
 /** Encodes a BMP file and compares it against the original BMP file */
 async function runTest(filename: string) {
   // 1. Read original BMP
-  const originalBmp = await Deno.readFile(`./tests/_bmpsuite-2.8/g/${filename}`);
+  const originalBmp = await fs.readFile(`./tests/_bmpsuite-2.8/g/${filename}`);
 
   // 2. Parse original header
   const originalHeader = readBMPHeader(originalBmp);
@@ -121,16 +121,16 @@ async function runTest(filename: string) {
   const { infoHeader: encodedInfoHeader } = encodedHeader;
 
   // 7. Validate headers
-  assertEquals(encodedInfoHeader.biWidth, infoHeader.biWidth, "Width mismatch");
-  assertEquals(encodedInfoHeader.biHeight, infoHeader.biHeight, "Height mismatch");
-  assertEquals(encodedInfoHeader.biBitCount, infoHeader.biBitCount, "BitsPerPixel mismatch");
-  assertEquals(encodedInfoHeader.biCompression, infoHeader.biCompression, "Compression mismatch");
-  assertEquals(encodedInfoHeader.biSize, infoHeader.biSize, "HeaderSize mismatch");
+  assert.strictEqual(encodedInfoHeader.biWidth, infoHeader.biWidth, "Width mismatch");
+  assert.strictEqual(encodedInfoHeader.biHeight, infoHeader.biHeight, "Height mismatch");
+  assert.strictEqual(encodedInfoHeader.biBitCount, infoHeader.biBitCount, "BitsPerPixel mismatch");
+  assert.strictEqual(encodedInfoHeader.biCompression, infoHeader.biCompression, "Compression mismatch");
+  assert.strictEqual(encodedInfoHeader.biSize, infoHeader.biSize, "HeaderSize mismatch");
 
   // Validate bitfield masks if present
   if (encodeOptions.bitfields) {
     const encodedBitfieldMasks = extractBitfieldMasks(encoded, encodedHeader);
-    assertEquals(encodedBitfieldMasks, encodeOptions.bitfields, "Bitfield masks mismatch");
+    assert.deepStrictEqual(encodedBitfieldMasks, encodeOptions.bitfields, "Bitfield masks mismatch");
   }
 
   // Validate palette if present
@@ -142,7 +142,7 @@ async function runTest(filename: string) {
       encodedInfoHeader.biBitCount as 1 | 2 | 4 | 8,
       encodedInfoHeader.biClrUsed,
     );
-    assertEquals(encodedPalette, encodeOptions.palette, "Palette mismatch");
+    assert.deepStrictEqual(encodedPalette, encodeOptions.palette, "Palette mismatch");
   }
 
   // 8. Decode both BMPs and compare pixels using pixelmatch
@@ -157,64 +157,64 @@ async function runTest(filename: string) {
     originalRaw.width,
     originalRaw.height,
   );
-  assertEquals(diff, 0, "Found different pixels");
+  assert.strictEqual(diff, 0, "Found different pixels");
 }
 
-Deno.test("Encode", async (t) => {
-  await t.step("Paletted", async (t) => {
-    await t.step("1-bit", async (t) => {
-      await t.step("pal1.bmp", () => runTest("pal1.bmp"));
-      await t.step("pal1bg.bmp", () => runTest("pal1bg.bmp"));
+test("Encode", async (t) => {
+  await t.test("Paletted", async (t) => {
+    await t.test("1-bit", async (t) => {
+      await t.test("pal1.bmp", () => runTest("pal1.bmp"));
+      await t.test("pal1bg.bmp", () => runTest("pal1bg.bmp"));
     });
 
-    await t.step("4-bit", async (t) => {
-      await t.step("pal4.bmp", () => runTest("pal4.bmp"));
-      await t.step("pal4gs.bmp", () => runTest("pal4gs.bmp"));
+    await t.test("4-bit", async (t) => {
+      await t.test("pal4.bmp", () => runTest("pal4.bmp"));
+      await t.test("pal4gs.bmp", () => runTest("pal4gs.bmp"));
     });
 
-    await t.step("8-bit", async (t) => {
-      await t.step("pal8.bmp", () => runTest("pal8.bmp"));
-      await t.step("pal8gs.bmp", () => runTest("pal8gs.bmp"));
-    });
-  });
-
-  await t.step("Truecolor", async (t) => {
-    await t.step("16-bit", async (t) => {
-      await t.step("rgb16.bmp", () => runTest("rgb16.bmp"));
-      await t.step("rgb16bfdef.bmp", () => runTest("rgb16bfdef.bmp"));
-    });
-
-    await t.step("24-bit", async (t) => {
-      await t.step("rgb24.bmp", () => runTest("rgb24.bmp"));
-    });
-
-    await t.step("32-bit", async (t) => {
-      await t.step("rgb32.bmp", () => runTest("rgb32.bmp"));
-      await t.step("rgb32bfdef.bmp", () => runTest("rgb32bfdef.bmp"));
+    await t.test("8-bit", async (t) => {
+      await t.test("pal8.bmp", () => runTest("pal8.bmp"));
+      await t.test("pal8gs.bmp", () => runTest("pal8gs.bmp"));
     });
   });
 
-  await t.step("Bitfields", async (t) => {
-    await t.step("16-bit", async (t) => {
-      await t.step("rgb16bfdef.bmp", () => runTest("rgb16bfdef.bmp"));
+  await t.test("Truecolor", async (t) => {
+    await t.test("16-bit", async (t) => {
+      await t.test("rgb16.bmp", () => runTest("rgb16.bmp"));
+      await t.test("rgb16bfdef.bmp", () => runTest("rgb16bfdef.bmp"));
     });
 
-    await t.step("32-bit", async (t) => {
-      await t.step("rgb32bfdef.bmp", () => runTest("rgb32bfdef.bmp"));
+    await t.test("24-bit", async (t) => {
+      await t.test("rgb24.bmp", () => runTest("rgb24.bmp"));
+    });
+
+    await t.test("32-bit", async (t) => {
+      await t.test("rgb32.bmp", () => runTest("rgb32.bmp"));
+      await t.test("rgb32bfdef.bmp", () => runTest("rgb32bfdef.bmp"));
     });
   });
 
-  await t.step("Compression", async (t) => {
-    await t.step("RLE4", () => runTest("pal4rle.bmp"));
-    await t.step("RLE8", () => runTest("pal8rle.bmp"));
+  await t.test("Bitfields", async (t) => {
+    await t.test("16-bit", async (t) => {
+      await t.test("rgb16bfdef.bmp", () => runTest("rgb16bfdef.bmp"));
+    });
+
+    await t.test("32-bit", async (t) => {
+      await t.test("rgb32bfdef.bmp", () => runTest("rgb32bfdef.bmp"));
+    });
   });
 
-  await t.step("Header types", async (t) => {
-    await t.step("v4", () => runTest("pal8v4.bmp"));
-    await t.step("v5", () => runTest("pal8v5.bmp"));
+  await t.test("Compression", async (t) => {
+    await t.test("RLE4", () => runTest("pal4rle.bmp"));
+    await t.test("RLE8", () => runTest("pal8rle.bmp"));
   });
 
-  await t.step("Edge cases", async (t) => {
-    await t.step("Top-down", () => runTest("pal8topdown.bmp"));
+  await t.test("Header types", async (t) => {
+    await t.test("v4", () => runTest("pal8v4.bmp"));
+    await t.test("v5", () => runTest("pal8v5.bmp"));
+  });
+
+  await t.test("Edge cases", async (t) => {
+    await t.test("Top-down", () => runTest("pal8topdown.bmp"));
   });
 });

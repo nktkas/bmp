@@ -1,21 +1,124 @@
-// deno-lint-ignore-file no-import-prefix
-import * as nktkas_bmp from "@nktkas/bmp";
-import * as fast_bmp from "npm:fast-bmp@4.0.1";
+import { bench, group, run, summary } from "mitata";
+import fs from "node:fs/promises";
+import type { RawImageData } from "../../src/mod.ts";
 
 // -------------------- Configuration --------------------
 
-interface EncoderConfig {
-  encode: (data: Uint8Array<ArrayBuffer>, bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32) => unknown;
-  supportedGroups: string[];
-}
+import * as nktkas_bmp from "../../src/mod.ts";
+import * as fast_bmp from "fast-bmp";
 
-const LIB_ENCODERS: Record<string, EncoderConfig> = {
-  "@nktkas/bmp": {
-    encode: (data, bitsPerPixel) => {
-      const raw = nktkas_bmp.decode(data);
-      return nktkas_bmp.encode(raw, { bitsPerPixel });
+type Benchmark = [
+  // benchmark name
+  string,
+  // image data
+  RawImageData & { bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32 },
+];
+const BENCHMARKS: Benchmark[] = [
+  [
+    "BI_RGB: 1 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal1bg.bmp")),
+      bitsPerPixel: 1,
     },
-    supportedGroups: [
+  ],
+  [
+    "BI_RGB: 1 bit (grayscale)",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal1.bmp")),
+      bitsPerPixel: 1,
+    },
+  ],
+  [
+    "BI_RGB: 4 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal4.bmp")),
+      bitsPerPixel: 4,
+    },
+  ],
+  [
+    "BI_RGB: 4 bit (grayscale)",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal4gs.bmp")),
+      bitsPerPixel: 4,
+    },
+  ],
+  [
+    "BI_RGB: 8 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal8.bmp")),
+      bitsPerPixel: 8,
+    },
+  ],
+  [
+    "BI_RGB: 8 bit (grayscale)",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal8gs.bmp")),
+      bitsPerPixel: 8,
+    },
+  ],
+  [
+    "BI_RGB: 16 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/rgb16.bmp")),
+      bitsPerPixel: 16,
+    },
+  ],
+  [
+    "BI_RGB: 24 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/rgb24.bmp")),
+      bitsPerPixel: 24,
+    },
+  ],
+  [
+    "BI_RGB: 32 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/rgb32.bmp")),
+      bitsPerPixel: 32,
+    },
+  ],
+  [
+    "BI_RLE: 4 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal4rle.bmp")),
+      bitsPerPixel: 4,
+    },
+  ],
+  [
+    "BI_RLE: 8 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/pal8rle.bmp")),
+      bitsPerPixel: 8,
+    },
+  ],
+  [
+    "BI_BITFIELDS: 16 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/rgb16bfdef.bmp")),
+      bitsPerPixel: 16,
+    },
+  ],
+  [
+    "BI_BITFIELDS: 32 bit",
+    {
+      ...nktkas_bmp.decode(await fs.readFile("./tests/_bmpsuite-2.8/g/rgb32bfdef.bmp")),
+      bitsPerPixel: 32,
+    },
+  ],
+];
+
+type DecoderLib = [
+  // library name
+  string,
+  // supported benchmark names
+  string[],
+  // encode function
+  (data: RawImageData & { bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32 }) => unknown,
+];
+const DECODER_LIBS: DecoderLib[] = [
+  [
+    "@nktkas/bmp",
+    [
       "BI_RGB: 1 bit",
       "BI_RGB: 1 bit (grayscale)",
       "BI_RGB: 4 bit",
@@ -30,85 +133,33 @@ const LIB_ENCODERS: Record<string, EncoderConfig> = {
       "BI_BITFIELDS: 16 bit",
       "BI_BITFIELDS: 32 bit",
     ],
-  },
-  "fast-bmp": {
-    encode: (data, bitsPerPixel) => {
-      const raw = nktkas_bmp.decode(data);
-      return fast_bmp.encode({
-        bitsPerPixel,
-        width: raw.width,
-        height: raw.height,
-        data: raw.data,
-        channels: raw.channels,
-      });
-    },
-    supportedGroups: [ // other bmp formats are generated broken
+    (data) => nktkas_bmp.encode(data, { ...data }),
+  ],
+  [
+    "fast-bmp",
+    [
       "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 24 bit",
     ],
-  },
-  // Placeholder for future libraries
-  // "other-bmp-lib": {
-  //   encode: (data) => {
-  //     const raw = otherLib.decode(data);
-  //     return otherLib.encode(raw);
-  //   },
-  //   supportedGroups: ["BI_RGB: 24 bit"],
-  // },
-};
+    (data) => fast_bmp.encode({ ...data }),
+  ],
+];
 
-// -------------------- Helpers --------------------
+// -------------------- Run --------------------
 
-function runBench(group: string, data: Uint8Array<ArrayBuffer>, bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32) {
-  for (const [libName, config] of Object.entries(LIB_ENCODERS)) {
-    const isSupported = config.supportedGroups.includes(group);
-    Deno.bench(libName, { group, ignore: !isSupported }, () => {
-      config.encode(data, bitsPerPixel);
+for (const [groupName, image] of BENCHMARKS) {
+  group(groupName, () => {
+    summary(() => {
+      for (const [libName, supportedGroups, encode] of DECODER_LIBS) {
+        const isSupported = supportedGroups.includes(groupName);
+        if (isSupported) {
+          bench(libName, () => encode(image))
+            .baseline(libName === "@nktkas/bmp")
+            .gc("once"); // clears memory from previous benchmarks
+        }
+      }
     });
-  }
+  });
 }
 
-// -------------------- BI_RGB --------------------
-
-const pal1bg = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal1bg.bmp");
-runBench("BI_RGB: 1 bit", pal1bg, 1);
-
-const pal1 = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal1.bmp");
-runBench("BI_RGB: 1 bit (grayscale)", pal1, 1);
-
-const pal4 = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4.bmp");
-runBench("BI_RGB: 4 bit", pal4, 4);
-
-const pal4gs = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4gs.bmp");
-runBench("BI_RGB: 4 bit (grayscale)", pal4gs, 4);
-
-const pal8 = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8.bmp");
-runBench("BI_RGB: 8 bit", pal8, 8);
-
-const pal8gs = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8gs.bmp");
-runBench("BI_RGB: 8 bit (grayscale)", pal8gs, 8);
-
-const rgb16 = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb16.bmp");
-runBench("BI_RGB: 16 bit", rgb16, 16);
-
-const rgb24 = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb24.bmp");
-runBench("BI_RGB: 24 bit", rgb24, 24);
-
-const rgb32 = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb32.bmp");
-runBench("BI_RGB: 32 bit", rgb32, 32);
-
-// -------------------- BI_RLE --------------------
-
-const pal4rle = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4rle.bmp");
-runBench("BI_RLE: 4 bit", pal4rle, 4);
-
-const pal8rle = await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8rle.bmp");
-runBench("BI_RLE: 8 bit", pal8rle, 8);
-
-// -------------------- BI_BITFIELDS --------------------
-
-const rgb16bfdef = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb16bfdef.bmp");
-runBench("BI_BITFIELDS: 16 bit", rgb16bfdef, 16);
-
-const rgb32bfdef = await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb32bfdef.bmp");
-runBench("BI_BITFIELDS: 32 bit", rgb32bfdef, 32);
+await run();
