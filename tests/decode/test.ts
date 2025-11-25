@@ -2,17 +2,16 @@
  * Compares decoded BMPs against reference PNGs from the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/).
  */
 
+// deno-lint-ignore-file no-import-prefix
+import { assertEquals } from "jsr:@std/assert@1";
 import { decode, extractCompressedData } from "../../src/mod.ts";
-import assert from "node:assert";
-import fs from "node:fs/promises";
-import test from "node:test";
-import sharp from "sharp";
-import pixelmatch from "pixelmatch";
+import sharp from "npm:sharp@^0.34.5";
+import pixelmatch from "npm:pixelmatch@7";
 
 /** Check if file exists */
 async function exists(path: string): Promise<boolean> {
   try {
-    await fs.access(path);
+    await Deno.stat(path);
     return true;
   } catch {
     return false;
@@ -48,8 +47,8 @@ function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
 
 /** Compares decoded BMP with PNG reference */
 async function runTest(filePath: string) {
-  const bmpBuffer = await fs.readFile(`./tests/_bmpsuite-2.8${filePath}`);
-  const pngBuffer = await fs.readFile(`./tests/_bmpsuite-2.8${filePath.replace(/\.bmp$/, ".png")}`);
+  const bmpBuffer = await Deno.readFile(`./tests/_bmpsuite-2.8${filePath}`);
+  const pngBuffer = await Deno.readFile(`./tests/_bmpsuite-2.8${filePath.replace(/\.bmp$/, ".png")}`);
 
   // Step 1: Decode BMP
   let bmp: ReturnType<typeof decode>;
@@ -70,8 +69,8 @@ async function runTest(filePath: string) {
   const png = await sharp(pngBuffer).raw().toBuffer({ resolveWithObject: true });
 
   // Step 3: Compare results
-  assert.strictEqual(bmp.width, png.info.width, "Width mismatch");
-  assert.strictEqual(bmp.height, png.info.height, "Height mismatch");
+  assertEquals(bmp.width, png.info.width, "Width mismatch");
+  assertEquals(bmp.height, png.info.height, "Height mismatch");
 
   // Pixel-by-pixel comparison
   const diff = pixelmatch(
@@ -82,40 +81,45 @@ async function runTest(filePath: string) {
     bmp.height,
     { threshold: 0.004 }, // Allow very small differences (due to different rounding strategies)
   );
-  assert.strictEqual(diff, 0, "Found different pixels");
+  assertEquals(diff, 0, "Found different pixels");
 }
 
-test("Decode", async (t) => {
-  await t.test("'good' BMPs", async (t) => {
-    const files = await fs.readdir("./tests/_bmpsuite-2.8/g");
-    for (const sample of files) {
-      if (!sample.endsWith(".bmp")) continue;
+Deno.test("Decode", async (t) => {
+  await t.step("'good' BMPs", async (t) => {
+    const files = await Deno.readDir("./tests/_bmpsuite-2.8/g");
+    for await (const sample of files) {
+      if (!sample.name.endsWith(".bmp")) continue;
 
-      await t.test(sample, async () => {
-        await runTest(`/g/${sample}`);
+      await t.step(sample.name, async () => {
+        await runTest(`/g/${sample.name}`);
       });
     }
   });
 
-  await t.test("'questionable' BMPs", async (t) => {
-    const files = await fs.readdir("./tests/_bmpsuite-2.8/q");
-    for (const sample of files) {
-      if (!sample.endsWith(".bmp")) continue;
+  await t.step("'questionable' BMPs", async (t) => {
+    const files = await Deno.readDir("./tests/_bmpsuite-2.8/q");
+    for await (const sample of files) {
+      if (!sample.name.endsWith(".bmp")) continue;
 
-      await t.test(sample, async () => {
-        await runTest(`/q/${sample}`);
+      await t.step(sample.name, async () => {
+        await runTest(`/q/${sample.name}`);
       });
     }
   });
 
-  await t.test("'bad' BMPs", async (t) => {
-    const files = await fs.readdir("./tests/_bmpsuite-2.8/b");
-    for (const sample of files) {
-      if (!sample.endsWith(".bmp")) continue;
+  await t.step("'bad' BMPs", async (t) => {
+    const files = await Deno.readDir("./tests/_bmpsuite-2.8/b");
+    for await (const sample of files) {
+      if (!sample.name.endsWith(".bmp")) continue;
 
-      const hasPng = await exists(`./tests/_bmpsuite-2.8/b/${sample.replace(/\.bmp$/, ".png")}`);
-      await t.test(sample, { skip: !hasPng }, async () => {
-        await runTest(`/b/${sample}`);
+      const hasPng = await exists(`./tests/_bmpsuite-2.8/b/${sample.name.replace(/\.bmp$/, ".png")}`);
+
+      await t.step({
+        name: sample.name,
+        ignore: !hasPng,
+        fn: async () => {
+          await runTest(`/b/${sample.name}`);
+        },
       });
     }
   });

@@ -1,8 +1,8 @@
 # BMP Encoder/Decoder
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![npm](https://img.shields.io/npm/v/@nktkas/bmp)](https://www.npmjs.com/package/@nktkas/bmp)
 [![JSR](https://jsr.io/badges/@nktkas/bmp)](https://jsr.io/@nktkas/bmp)
+[![bundlejs](https://img.shields.io/bundlejs/size/@nktkas/bmp)](https://bundlejs.com/?q=@nktkas/bmp)
 
 Fast and lightweight BMP image encoder/decoder.
 
@@ -216,7 +216,7 @@ interface EncodeOptions {
 
 ### Decode
 
-<sub>Run command: `npm run bench:decode`</sub>
+<sub>Run command: `deno run -A tests/decode/bench.ts`</sub>
 
 ```
 # BI_RGB (127x64)
@@ -238,7 +238,7 @@ interface EncodeOptions {
 
 ### Encode
 
-<sub>Run command: `npm run bench:encode`</sub>
+<sub>Run command: `deno run -A tests/encode/bench.ts`</sub>
 
 ```
 # BI_RGB (127x64)
