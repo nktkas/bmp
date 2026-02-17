@@ -280,14 +280,26 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
     }
   } else {
     // Linear search for small palettes
+
+    // flat typed arrays for faster access
+    const palLen = palette.length;
+    const palR = new Uint8Array(palLen);
+    const palG = new Uint8Array(palLen);
+    const palB = new Uint8Array(palLen);
+    for (let j = 0; j < palLen; j++) {
+      palR[j] = palette[j].red;
+      palG[j] = palette[j].green;
+      palB[j] = palette[j].blue;
+    }
+
     for (let i = 0; i < pixelCount; i++) {
       const [r, g, b] = readPixelRgb(raw.data, i * raw.channels, raw.channels);
       let minDist = Infinity;
       let closest = 0;
-      for (let j = 0; j < palette.length; j++) {
-        const dr = r - palette[j].red;
-        const dg = g - palette[j].green;
-        const db = b - palette[j].blue;
+      for (let j = 0; j < palLen; j++) {
+        const dr = r - palR[j];
+        const dg = g - palG[j];
+        const db = b - palB[j];
         const dist = dr * dr + dg * dg + db * db;
         if (dist < minDist) {
           minDist = dist;
