@@ -8,12 +8,7 @@
  */
 
 import type { BmpHeader, RawImageData } from "../common.ts";
-import {
-  calculateStride,
-  getImageLayout,
-  isPaletteGrayscale,
-  writePaletteColor,
-} from "../common.ts";
+import { calculateStride, getImageLayout, isPaletteGrayscale } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /**
@@ -54,23 +49,60 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const channels: 1 | 3 = isPaletteGrayscale(palette) ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
-  const pixelsPerByte = 8 / bitsPerPixel;
-  const indexMask = (1 << bitsPerPixel) - 1;
+  // Flatten palette into typed arrays for fast indexed access
+  const palR = new Uint8Array(palette.length);
+  const palG = new Uint8Array(palette.length);
+  const palB = new Uint8Array(palette.length);
+  for (let i = 0; i < palette.length; i++) {
+    palR[i] = palette[i].red;
+    palG[i] = palette[i].green;
+    palB[i] = palette[i].blue;
+  }
 
-  for (let y = 0; y < absHeight; y++) {
-    const srcY = isTopDown ? y : absHeight - 1 - y;
-    const srcRowStart = dataOffset + srcY * stride;
-    let dstOffset = y * absWidth * channels;
+  if (bitsPerPixel === 8) {
+    // 8-bit: one index per byte, no bit unpacking needed
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : absHeight - 1 - y;
+      const srcRowStart = dataOffset + srcY * stride;
+      let dstOffset = y * absWidth * channels;
+      if (channels === 1) {
+        for (let x = 0; x < absWidth; x++) {
+          output[dstOffset++] = palR[bmp[srcRowStart + x]];
+        }
+      } else {
+        for (let x = 0; x < absWidth; x++) {
+          const idx = bmp[srcRowStart + x];
+          output[dstOffset++] = palR[idx];
+          output[dstOffset++] = palG[idx];
+          output[dstOffset++] = palB[idx];
+        }
+      }
+    }
+  } else {
+    // 1/2/4-bit: generic bit unpacking
+    const pixelsPerByte = 8 / bitsPerPixel;
+    const indexMask = (1 << bitsPerPixel) - 1;
 
-    for (let x = 0; x < absWidth;) {
-      const byte = bmp[srcRowStart + Math.floor(x / pixelsPerByte)];
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : absHeight - 1 - y;
+      const srcRowStart = dataOffset + srcY * stride;
+      let dstOffset = y * absWidth * channels;
+      let byteIndex = 0;
 
-      // Extract all pixel indices packed in this byte, MSB first
-      const pixelsInThisByte = Math.min(pixelsPerByte, absWidth - x);
-      for (let p = 0; p < pixelsInThisByte; p++, x++) {
-        const shift = (pixelsPerByte - 1 - p) * bitsPerPixel;
-        const index = (byte >> shift) & indexMask;
-        dstOffset = writePaletteColor(output, dstOffset, palette[index], channels);
+      for (let x = 0; x < absWidth;) {
+        const byte = bmp[srcRowStart + byteIndex++];
+        const pixelsInThisByte = Math.min(pixelsPerByte, absWidth - x);
+        for (let p = 0; p < pixelsInThisByte; p++, x++) {
+          const shift = (pixelsPerByte - 1 - p) * bitsPerPixel;
+          const idx = (byte >> shift) & indexMask;
+          if (channels === 1) {
+            output[dstOffset++] = palR[idx];
+          } else {
+            output[dstOffset++] = palR[idx];
+            output[dstOffset++] = palG[idx];
+            output[dstOffset++] = palB[idx];
+          }
+        }
       }
     }
   }
