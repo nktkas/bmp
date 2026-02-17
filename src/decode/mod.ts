@@ -1,171 +1,106 @@
-import type { RawImageData } from "../_common.ts";
-import { readBMPHeader } from "./_bmpHeader.ts";
-import { BI_RGB_TO_RAW } from "./_bi_rgb.ts";
-import { BI_RLE_TO_RAW } from "./_bi_rle.ts";
-import { BI_BITFIELDS_TO_RAW } from "./_bi_bitfields.ts";
-import { BI_HUFFMAN_TO_RAW } from "./_bi_huffman.ts";
-
 /**
- * Converts a BMP image to a raw pixel image data
- * @param bmp The BMP array to convert
- * @returns The raw pixel image data (width, height, channels, data)
+ * @module
+ * BMP image decoder — converts BMP binary data to raw pixel data.
+ *
+ * Supports all standard BMP compression types: BI_RGB, BI_RLE8, BI_RLE4,
+ * BI_BITFIELDS, BI_ALPHABITFIELDS, RLE24, and Modified Huffman.
+ * For embedded JPEG/PNG, use {@link extractCompressedData}.
  *
  * @example
  * ```ts
- * import { decode } from "@nktkas/bmp";
+ * import { decode } from "@nktkas/bmp/decode";
  *
- * // A minimal 1x1 pixel 24-bit BMP file
- * const bmp = new Uint8Array([
- *   // BMP File Header (14 bytes)
- *   0x42, 0x4D,             // Signature 'BM'
- *   0x3A, 0x00, 0x00, 0x00, // File size (58 bytes)
- *   0x00, 0x00,             // Reserved
- *   0x00, 0x00,             // Reserved
- *   0x36, 0x00, 0x00, 0x00, // Pixel data offset (54 bytes)
- *   // DIB Header (BITMAPINFOHEADER, 40 bytes)
- *   0x28, 0x00, 0x00, 0x00, // Header size (40)
- *   0x01, 0x00, 0x00, 0x00, // Width (1 pixel)
- *   0x01, 0x00, 0x00, 0x00, // Height (1 pixel)
- *   0x01, 0x00,             // Color planes (1)
- *   0x18, 0x00,             // Bits per pixel (24)
- *   0x00, 0x00, 0x00, 0x00, // Compression (0 = none)
- *   0x04, 0x00, 0x00, 0x00, // Image size (4 bytes with padding)
- *   0x00, 0x00, 0x00, 0x00, // X pixels per meter
- *   0x00, 0x00, 0x00, 0x00, // Y pixels per meter
- *   0x00, 0x00, 0x00, 0x00, // Colors used
- *   0x00, 0x00, 0x00, 0x00, // Important colors
- *   // Pixel data (BGR format + padding to 4 bytes)
- *   0x00, 0x00, 0x00,       // Black pixel (Blue, Green, Red)
- *   0x00                    // Padding to 4 bytes
- * ]);
- *
- * const raw = decode(bmp);
- * // { width: 1, height: 1, channels: 3, data: Uint8Array(3) [0, 0, 0] }
+ * const bmp = await Deno.readFile("image.bmp");
+ * const { width, height, channels, data } = decode(bmp);
  * ```
  */
-export function decode(bmp: Uint8Array): RawImageData {
-  const header = readBMPHeader(bmp);
-  const { biCompression, biBitCount } = header.infoHeader;
 
-  if (biCompression === 0) { // BI_RGB
-    return BI_RGB_TO_RAW(bmp, header);
+import type { RawImageData } from "../common.ts";
+import { readHeader } from "./header.ts";
+import { decodeRgb } from "./rgb.ts";
+import { decodeBitfields } from "./bitfields.ts";
+import { decodeRle } from "./rle.ts";
+import { decodeHuffman } from "./huffman.ts";
+
+/**
+ * Decodes a BMP image to raw pixel data.
+ *
+ * @param bmp - Complete BMP file contents as a byte array.
+ * @returns Raw pixel data with width, height, channel count, and pixel buffer.
+ */
+export function decode(bmp: Uint8Array): RawImageData {
+  const header = readHeader(bmp);
+
+  switch (header.compression) {
+    case 0: // BI_RGB — uncompressed
+      return decodeRgb(bmp, header);
+
+    case 1: // BI_RLE8
+    case 2: // BI_RLE4
+      return decodeRle(bmp, header);
+
+    case 3: // BI_BITFIELDS or BI_HUFFMAN (distinguished by bitsPerPixel)
+      return header.bitsPerPixel === 1 ? decodeHuffman(bmp, header) : decodeBitfields(bmp, header);
+
+    case 4: // BI_JPEG or RLE24 (distinguished by bitsPerPixel)
+      if (header.bitsPerPixel === 24) return decodeRle(bmp, header);
+      throw new Error(
+        `Unsupported compression: ${header.compression} (JPEG in BMP). Use "extractCompressedData" to extract the embedded image.`,
+      );
+
+    case 5: // BI_PNG
+      throw new Error(
+        `Unsupported compression: ${header.compression} (PNG in BMP). Use "extractCompressedData" to extract the embedded image.`,
+      );
+
+    case 6: // BI_ALPHABITFIELDS
+      return decodeBitfields(bmp, header);
+
+    default:
+      throw new Error(`Unsupported compression type: ${header.compression}`);
   }
-  if (biCompression === 1 || biCompression === 2 || (biCompression === 4 && biBitCount === 24)) { // RLE8, RLE4, RLE24
-    return BI_RLE_TO_RAW(bmp, header);
-  }
-  if (biCompression === 3 && biBitCount === 1) { // BI_HUFFMAN
-    return BI_HUFFMAN_TO_RAW(bmp, header);
-  }
-  if (biCompression === 3 || biCompression === 6) { // BI_BITFIELDS, BI_ALPHABITFIELDS
-    return BI_BITFIELDS_TO_RAW(bmp, header);
-  }
-  if (biCompression === 4) { // BI_JPEG
-    throw new Error(
-      `Unsupported compression type: ${biCompression} (JPEG in BMP). Use "extractCompressedData" to extract the embedded image.`,
-    );
-  }
-  if (biCompression === 5) { // BI_PNG
-    throw new Error(
-      `Unsupported compression type: ${biCompression} (PNG in BMP). Use "extractCompressedData" to extract the embedded image.`,
-    );
-  }
-  throw new Error(`Unsupported compression type: ${biCompression}`);
 }
 
-/** Compressed image data extracted from BMP */
+/** Compressed image data extracted from a BMP file without decompression. */
 export interface CompressedImageData {
-  /** Image width in pixels */
+  /** Image width in pixels. */
   width: number;
-  /** Image height in pixels */
+  /** Image height in pixels. */
   height: number;
-  /**
-   * Compression type:
-   * - 0 = BI_RGB
-   * - 1 = BI_RLE8
-   * - 2 = BI_RLE4
-   * - 3 = BI_BITFIELDS
-   * - 4 = BI_JPEG
-   * - 5 = BI_PNG
-   * - 6 = BI_ALPHABITFIELDS
-   */
+  /** BMP compression type (e.g. 4 = BI_JPEG, 5 = BI_PNG). */
   compression: number;
-  /** Raw compressed data */
+  /** Raw compressed data (e.g. a complete JPEG or PNG file). */
   data: Uint8Array;
 }
 
 /**
  * Extracts compressed image data from a BMP file without decompression.
  *
- * Useful for BI_JPEG and BI_PNG compressed BMPs.
- * But can also be used for other compression types if needed.
- * @param bmp The BMP array to extract from
- * @returns The compressed image data
+ * Useful for BMP files that embed JPEG (compression = 4) or PNG (compression = 5)
+ * data. The extracted data can be decoded with any standard JPEG/PNG decoder.
+ *
+ * @param bmp - Complete BMP file contents as a byte array.
+ * @returns Compressed image data with dimensions and compression type.
  *
  * @example
  * ```ts
- * import { extractCompressedData } from "@nktkas/bmp";
+ * import { extractCompressedData } from "@nktkas/bmp/decode";
  *
- * // A minimal 1x1 pixel BMP file with embedded PNG data (BI_PNG compression)
- * const bmp = new Uint8Array([
- *   // BMP File Header (14 bytes)
- *   0x42, 0x4D,             // Signature 'BM'
- *   0x7B, 0x00, 0x00, 0x00, // File size (123 bytes)
- *   0x00, 0x00,             // Reserved
- *   0x00, 0x00,             // Reserved
- *   0x36, 0x00, 0x00, 0x00, // Pixel data offset (54 bytes)
- *   // DIB Header (BITMAPINFOHEADER, 40 bytes)
- *   0x28, 0x00, 0x00, 0x00, // Header size (40)
- *   0x01, 0x00, 0x00, 0x00, // Width (1 pixel)
- *   0x01, 0x00, 0x00, 0x00, // Height (1 pixel)
- *   0x01, 0x00,             // Color planes (1)
- *   0x00, 0x00,             // Bits per pixel (0 for BI_PNG)
- *   0x05, 0x00, 0x00, 0x00, // Compression (5 = BI_PNG)
- *   0x45, 0x00, 0x00, 0x00, // Image size (69 bytes - PNG data size)
- *   0x00, 0x00, 0x00, 0x00, // X pixels per meter
- *   0x00, 0x00, 0x00, 0x00, // Y pixels per meter
- *   0x00, 0x00, 0x00, 0x00, // Colors used
- *   0x00, 0x00, 0x00, 0x00, // Important colors
- *   // Embedded PNG data (69 bytes) - 1x1 black pixel
- *   // PNG signature
- *   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
- *   // IHDR chunk
- *   0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
- *   0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
- *   0x08, 0x00, 0x00, 0x00, 0x00, 0x3A, 0x7E, 0x9B, 0x55,
- *   // IDAT chunk
- *   0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54,
- *   0x08, 0x1D, 0x01, 0x02, 0x00, 0xFD, 0xFF, 0x00,
- *   0x00, 0xE5, 0xE3, 0x00, 0x09, 0x74, 0xC6, 0xD6, 0xC2,
- *   // IEND chunk
- *   0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
- *   0xAE, 0x42, 0x60, 0x82
- * ]);
- *
- * const extracted = extractCompressedData(bmp);
- * // { width: 1, height: 1, compression: 5, data: Uint8Array(69) [...] }
- * //                                     ^ BI_JPEG = 4, BI_PNG = 5
- *
- * // Then you can decode it with any JPEG/PNG decoder
- * import sharp from "npm:sharp";
- * const raw = await sharp(extracted.data).raw().toBuffer();
+ * const bmp = await Deno.readFile("embedded_png.bmp");
+ * const { data, compression } = extractCompressedData(bmp);
+ * // `data` is a complete PNG file that can be decoded separately
  * ```
  */
 export function extractCompressedData(bmp: Uint8Array): CompressedImageData {
-  const header = readBMPHeader(bmp);
-  const { bfOffBits } = header.fileHeader;
-  const { biWidth, biHeight, biCompression, biSizeImage } = header.infoHeader;
-
-  const absWidth = Math.abs(biWidth);
-  const absHeight = Math.abs(biHeight);
-  const data = bmp.slice(bfOffBits, bfOffBits + biSizeImage);
+  const header = readHeader(bmp);
+  const { dataOffset, imageSize } = header;
 
   return {
-    width: absWidth,
-    height: absHeight,
-    compression: biCompression,
-    data,
+    width: Math.abs(header.width),
+    height: Math.abs(header.height),
+    compression: header.compression,
+    data: bmp.slice(dataOffset, dataOffset + imageSize),
   };
 }
 
-// Re-export types
 export type { RawImageData };

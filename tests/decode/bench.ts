@@ -1,5 +1,7 @@
 // deno-lint-ignore-file no-import-prefix
+import { join } from "jsr:@std/path@1";
 import { bench, group, run, summary } from "npm:mitata@1";
+import { SUITE_DIR } from "../_utils.ts";
 
 // -------------------- Configuration --------------------
 
@@ -17,20 +19,22 @@ type Benchmark = [
   // image data
   Uint8Array<ArrayBuffer>,
 ];
+
+const goodDir = join(SUITE_DIR, "g");
 const BENCHMARKS: Benchmark[] = [
-  ["BI_RGB: 1 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal1bg.bmp")],
-  ["BI_RGB: 1 bit (grayscale)", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal1.bmp")],
-  ["BI_RGB: 4 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4.bmp")],
-  ["BI_RGB: 4 bit (grayscale)", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4gs.bmp")],
-  ["BI_RGB: 8 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8.bmp")],
-  ["BI_RGB: 8 bit (grayscale)", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8gs.bmp")],
-  ["BI_RGB: 16 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb16.bmp")],
-  ["BI_RGB: 24 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb24.bmp")],
-  ["BI_RGB: 32 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb32.bmp")],
-  ["BI_RLE: 4 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal4rle.bmp")],
-  ["BI_RLE: 8 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/pal8rle.bmp")],
-  ["BI_BITFIELDS: 16 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb16bfdef.bmp")],
-  ["BI_BITFIELDS: 32 bit", await Deno.readFile("./tests/_bmpsuite-2.8/g/rgb32bfdef.bmp")],
+  ["BI_RGB: 1 bit", await Deno.readFile(join(goodDir, "pal1bg.bmp"))],
+  ["BI_RGB: 1 bit (grayscale)", await Deno.readFile(join(goodDir, "pal1.bmp"))],
+  ["BI_RGB: 4 bit", await Deno.readFile(join(goodDir, "pal4.bmp"))],
+  ["BI_RGB: 4 bit (grayscale)", await Deno.readFile(join(goodDir, "pal4gs.bmp"))],
+  ["BI_RGB: 8 bit", await Deno.readFile(join(goodDir, "pal8.bmp"))],
+  ["BI_RGB: 8 bit (grayscale)", await Deno.readFile(join(goodDir, "pal8gs.bmp"))],
+  ["BI_RGB: 16 bit", await Deno.readFile(join(goodDir, "rgb16.bmp"))],
+  ["BI_RGB: 24 bit", await Deno.readFile(join(goodDir, "rgb24.bmp"))],
+  ["BI_RGB: 32 bit", await Deno.readFile(join(goodDir, "rgb32.bmp"))],
+  ["BI_RLE: 4 bit", await Deno.readFile(join(goodDir, "pal4rle.bmp"))],
+  ["BI_RLE: 8 bit", await Deno.readFile(join(goodDir, "pal8rle.bmp"))],
+  ["BI_BITFIELDS: 16 bit", await Deno.readFile(join(goodDir, "rgb16bfdef.bmp"))],
+  ["BI_BITFIELDS: 32 bit", await Deno.readFile(join(goodDir, "rgb32bfdef.bmp"))],
 ];
 
 type DecoderLib = [
@@ -83,16 +87,21 @@ const DECODER_LIBS: DecoderLib[] = [
   [
     "fast-bmp",
     [
-      "BI_RGB: 8 bit",
       "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 24 bit",
+      "BI_BITFIELDS: 32 bit",
     ],
     (data) => fast_bmp.decode(data),
   ],
   [
     "bmp-ts",
     [
+      "BI_RGB: 1 bit",
+      "BI_RGB: 1 bit (grayscale)",
+      "BI_RGB: 8 bit",
+      "BI_RGB: 8 bit (grayscale)",
       "BI_RGB: 16 bit",
+      "BI_RGB: 24 bit",
       "BI_RGB: 32 bit",
       "BI_BITFIELDS: 16 bit",
       "BI_BITFIELDS: 32 bit",
@@ -111,8 +120,6 @@ const DECODER_LIBS: DecoderLib[] = [
       "BI_RGB: 16 bit",
       "BI_RGB: 24 bit",
       "BI_RGB: 32 bit",
-      "BI_RLE: 4 bit",
-      "BI_RLE: 8 bit",
     ],
     (data) => bmpjs.decode(Buffer.from(data)),
   ],
@@ -143,11 +150,10 @@ for (const [groupName, image] of BENCHMARKS) {
   group(groupName, () => {
     summary(() => {
       for (const [libName, supportedGroups, decode] of DECODER_LIBS) {
-        const isSupported = supportedGroups.includes(groupName);
-        if (isSupported) {
+        if (supportedGroups.includes(groupName)) {
           bench(libName, () => decode(image))
             .baseline(libName === "@nktkas/bmp")
-            .gc("once"); // clears memory from previous benchmarks
+            .gc("once");
         }
       }
     });

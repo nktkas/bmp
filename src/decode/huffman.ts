@@ -1,9 +1,27 @@
-import type { RawImageData } from "./mod.ts";
-import type { BMPHeader } from "./_bmpHeader.ts";
-import { extractColorTable } from "./_colorTable.ts";
+/**
+ * @module
+ * Decodes BMP images with Modified Huffman (CCITT Group 3 1D) compression.
+ *
+ * This is an OS/2-specific compression method (biCompression = 3 with 1bpp)
+ * that uses variable-length Huffman codes to represent alternating runs of
+ * white and black pixels. Each scan line starts with a white run (which may
+ * be zero-length), followed by alternating black and white runs.
+ *
+ * The lookup tables below are defined by the CCITT Group 3 standard.
+ */
 
-// Modified Huffman (CCITT Group 3 1D) code tables for white runs
-const WHITE_TERMINATING: { [key: string]: number } = {
+import type { BmpHeader, RawImageData } from "../common.ts";
+import { getImageLayout, isPaletteGrayscale, writePaletteColor } from "../common.ts";
+import { extractPalette } from "./palette.ts";
+
+// ============================================================================
+// Huffman code tables (CCITT Group 3 1D standard)
+// ============================================================================
+
+// --- White run codes ---
+
+/** White terminating codes: bit patterns → run lengths 0–63 */
+const WHITE_TERMINATING: Record<string, number> = {
   "00110101": 0,
   "000111": 1,
   "0111": 2,
@@ -70,7 +88,8 @@ const WHITE_TERMINATING: { [key: string]: number } = {
   "00110100": 63,
 };
 
-const WHITE_MAKEUP: { [key: string]: number } = {
+/** White make-up codes: bit patterns → run lengths 64–1728 (multiples of 64) */
+const WHITE_MAKEUP: Record<string, number> = {
   "11011": 64,
   "10010": 128,
   "010111": 192,
@@ -100,8 +119,10 @@ const WHITE_MAKEUP: { [key: string]: number } = {
   "010011011": 1728,
 };
 
-// Modified Huffman (CCITT Group 3 1D) code tables for black runs
-const BLACK_TERMINATING: { [key: string]: number } = {
+// --- Black run codes ---
+
+/** Black terminating codes: bit patterns → run lengths 0–63 */
+const BLACK_TERMINATING: Record<string, number> = {
   "0000110111": 0,
   "010": 1,
   "11": 2,
@@ -168,7 +189,8 @@ const BLACK_TERMINATING: { [key: string]: number } = {
   "000001100111": 63,
 };
 
-const BLACK_MAKEUP: { [key: string]: number } = {
+/** Black make-up codes: bit patterns → run lengths 64–1728 (multiples of 64) */
+const BLACK_MAKEUP: Record<string, number> = {
   "0000001111": 64,
   "000011001000": 128,
   "000011001001": 192,
@@ -198,121 +220,88 @@ const BLACK_MAKEUP: { [key: string]: number } = {
   "0000001100101": 1728,
 };
 
-const EOL = "000000000001"; // End of line marker
+/** End-of-line marker: twelve 0-bits followed by a 1-bit. */
+const EOL = "000000000001";
+
+// ============================================================================
+// Decoder
+// ============================================================================
 
 /**
- * Converts a BMP with Modified Huffman (OS/2 Huffman 1D) compression to a raw pixel image data
+ * Decodes a Modified Huffman (CCITT Group 3 1D) compressed BMP to raw pixel data.
+ *
+ * @param bmp - Complete BMP file contents.
+ * @param header - Parsed BMP header (must be 1bpp).
+ * @returns Decoded pixel data (grayscale or RGB depending on palette).
  */
-export function BI_HUFFMAN_TO_RAW(bmp: Uint8Array, header: BMPHeader): RawImageData {
-  // 0. Get header data and validate
-  const { bfOffBits } = header.fileHeader;
-  const { biWidth, biHeight, biCompression, biSize, biBitCount, biClrUsed } = header.infoHeader;
+export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData {
+  const { dataOffset } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
 
-  if (biCompression !== 3) {
-    throw new Error(`Unsupported BMP compression method: received ${biCompression}, expected 3 (BI_HUFFMAN)`);
-  }
-  if (biBitCount !== 1) {
-    throw new Error(`Unsupported BMP bit count: received ${biBitCount}, expected 1 for Huffman compression`);
-  }
-
-  // 1. Calculate image dimensions and orientation
-  const absWidth = Math.abs(biWidth);
-  const absHeight = Math.abs(biHeight);
-  const isTopDown = biHeight < 0;
-
-  // 2. Extract color palette
-  const palette = extractColorTable(bmp, bfOffBits, biSize, biBitCount, biClrUsed);
-
-  // 3. Check if palette is grayscale (R=G=B for all colors)
-  const isGrayscale = palette.every((c) => c.red === c.green && c.green === c.blue);
-  const channels = isGrayscale ? 1 : 3;
-
-  // 4. Allocate output buffer
+  const palette = extractPalette(bmp, header);
+  const channels: 1 | 3 = isPaletteGrayscale(palette) ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
-  // 5. Decode Huffman-compressed data
-  const pixels = decompressHuffman(bmp, bfOffBits, absWidth, absHeight);
+  // Decompress Huffman data into a flat array of 0/1 palette indices
+  const pixels = decompressHuffman(bmp, dataOffset, absWidth, absHeight);
 
-  // 6. Process pixels (palette indices to RGB/Grayscale)
-  if (isGrayscale) {
-    for (let y = 0; y < absHeight; y++) {
-      const srcY = isTopDown ? y : (absHeight - 1 - y);
-      let srcOffset = srcY * absWidth;
-      let dstOffset = y * absWidth;
+  // Map palette indices to output pixels, handling row order
+  for (let y = 0; y < absHeight; y++) {
+    const srcY = isTopDown ? y : absHeight - 1 - y;
+    let srcOffset = srcY * absWidth;
+    let dstOffset = y * absWidth * channels;
 
-      for (let x = 0; x < absWidth; x++) {
-        output[dstOffset++] = palette[pixels[srcOffset++]].red;
-      }
-    }
-  } else {
-    for (let y = 0; y < absHeight; y++) {
-      const srcY = isTopDown ? y : (absHeight - 1 - y);
-      let srcOffset = srcY * absWidth;
-      let dstOffset = y * absWidth * 3;
-
-      for (let x = 0; x < absWidth; x++) {
-        const color = palette[pixels[srcOffset++]];
-        output[dstOffset++] = color.red;
-        output[dstOffset++] = color.green;
-        output[dstOffset++] = color.blue;
-      }
+    for (let x = 0; x < absWidth; x++) {
+      dstOffset = writePaletteColor(output, dstOffset, palette[pixels[srcOffset++]], channels);
     }
   }
 
-  return {
-    width: absWidth,
-    height: absHeight,
-    channels: channels,
-    data: output,
-  };
+  return { width: absWidth, height: absHeight, channels, data: output };
 }
 
-/**
- * Decompresses Modified Huffman (CCITT Group 3 1D) encoded data
- */
+/** Decompresses Modified Huffman data into a flat array of 0/1 palette indices. */
 function decompressHuffman(
   bmp: Uint8Array,
-  bfOffBits: number,
+  dataOffset: number,
   absWidth: number,
   absHeight: number,
 ): Uint8Array {
   const pixels = new Uint8Array(absWidth * absHeight);
 
-  // Convert compressed data to bit string for easier parsing
+  // Convert compressed bytes to a binary string for easier parsing
   let bitString = "";
-  for (let i = bfOffBits; i < bmp.length; i++) {
+  for (let i = dataOffset; i < bmp.length; i++) {
     bitString += bmp[i].toString(2).padStart(8, "0");
   }
 
   let bitPos = 0;
   let pixelPos = 0;
 
-  // Skip initial EOL if present
+  // Skip initial EOL marker if present
   if (bitString.substring(bitPos, bitPos + 12) === EOL) {
     bitPos += 12;
   }
 
   for (let row = 0; row < absHeight; row++) {
     let col = 0;
-    let isWhite = true; // Scan lines always start with white run
+    let isWhite = true; // Each scan line starts with a white run
 
     while (col < absWidth) {
-      const runLength = decodeRun(bitString, bitPos, isWhite);
-      if (!runLength) break; // Error or EOL encountered
+      const run = decodeRun(bitString, bitPos, isWhite);
+      if (!run) break;
 
-      bitPos += runLength.bitsConsumed;
+      bitPos += run.bitsConsumed;
 
-      // Fill pixels with current color
+      // Fill pixels with the current color (0 = white, 1 = black)
       const colorValue = isWhite ? 0 : 1;
-      for (let i = 0; i < runLength.length && col < absWidth; i++, col++) {
+      for (let i = 0; i < run.length && col < absWidth; i++, col++) {
         pixels[pixelPos++] = colorValue;
       }
 
       isWhite = !isWhite;
     }
 
-    // Skip any remaining bits to align to next scanline
-    // Look for EOL marker
+    // Scan forward to the next EOL marker to align to the next row
     while (bitPos < bitString.length - 12) {
       if (bitString.substring(bitPos, bitPos + 12) === EOL) {
         bitPos += 12;
@@ -325,9 +314,7 @@ function decompressHuffman(
   return pixels;
 }
 
-/**
- * Decodes a single run (white or black) from the bit stream
- */
+/** Decodes a single run (white or black) from the Huffman bit stream. */
 function decodeRun(
   bitString: string,
   startPos: number,
@@ -339,11 +326,9 @@ function decodeRun(
   let totalLength = 0;
   let pos = startPos;
 
-  // Decode make-up codes first (for runs >= 64)
+  // Decode make-up codes (for runs >= 64 pixels)
   while (true) {
     let found = false;
-
-    // Try to match make-up code (up to 13 bits)
     for (let len = 2; len <= 13 && pos + len <= bitString.length; len++) {
       const code = bitString.substring(pos, pos + len);
       if (makeupTable[code] !== undefined) {
@@ -353,11 +338,10 @@ function decodeRun(
         break;
       }
     }
-
     if (!found) break;
   }
 
-  // Decode terminating code (required)
+  // Decode the required terminating code (run length 0–63)
   for (let len = 2; len <= 13 && pos + len <= bitString.length; len++) {
     const code = bitString.substring(pos, pos + len);
     if (terminatingTable[code] !== undefined) {
@@ -367,12 +351,12 @@ function decodeRun(
     }
   }
 
-  // Check for EOL
+  // Check for end-of-line marker
   if (bitString.substring(pos, pos + 12) === EOL) {
     return null;
   }
 
-  // If no valid code found, return what we have or error
+  // Return partial result if make-up codes were found
   if (totalLength > 0) {
     return { length: totalLength, bitsConsumed: pos - startPos };
   }

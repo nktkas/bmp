@@ -5,156 +5,91 @@
 
 // deno-lint-ignore-file no-import-prefix
 import { assertEquals } from "jsr:@std/assert@1";
+import { join } from "jsr:@std/path@1";
 import pixelmatch from "npm:pixelmatch@7";
 import { decode, encode, type EncodeOptions } from "../../src/mod.ts";
-import { type BMPHeader, readBMPHeader } from "../../src/decode/_bmpHeader.ts";
-import { extractColorTable } from "../../src/decode/_colorTable.ts";
+import { readHeader } from "../../src/decode/header.ts";
+import { extractPalette } from "../../src/decode/palette.ts";
+import { SUITE_DIR, toRgba } from "../_utils.ts";
 
-/** Maps header size to HeaderType string */
-function mapHeaderType(headerSize: number): "BITMAPINFOHEADER" | "BITMAPV4HEADER" | "BITMAPV5HEADER" {
+/** Maps DIB header size to HeaderType string. */
+function mapHeaderType(
+  headerSize: number,
+): "BITMAPINFOHEADER" | "BITMAPV4HEADER" | "BITMAPV5HEADER" {
   if (headerSize === 108) return "BITMAPV4HEADER";
   if (headerSize === 124) return "BITMAPV5HEADER";
-  return "BITMAPINFOHEADER"; // Default: 40 bytes
+  return "BITMAPINFOHEADER";
 }
 
-/** Helper to extract bitfield masks from header */
-function extractBitfieldMasks(bmp: Uint8Array, header: BMPHeader) {
-  const { infoHeader } = header;
-
-  // Check if BITFIELDS compression
-  if (infoHeader.biCompression !== 3 && infoHeader.biCompression !== 6) return undefined;
-
-  // V4/V5 headers (108/124 bytes) - masks in header
-  if ("bV4RedMask" in infoHeader) {
-    return {
-      redMask: infoHeader.bV4RedMask,
-      greenMask: infoHeader.bV4GreenMask,
-      blueMask: infoHeader.bV4BlueMask,
-      alphaMask: infoHeader.bV4AlphaMask,
-    };
-  }
-
-  // V2/V3 headers (52/56 bytes) - masks in header
-  if ("biRedMask" in infoHeader) {
-    return {
-      redMask: infoHeader.biRedMask,
-      greenMask: infoHeader.biGreenMask,
-      blueMask: infoHeader.biBlueMask,
-      alphaMask: "biAlphaMask" in infoHeader ? infoHeader.biAlphaMask : undefined,
-    };
-  }
-
-  // V1 BITMAPINFOHEADER (40 bytes) - masks after header
-  const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
-  const maskOffset = 14 + infoHeader.biSize;
+/** Extracts bitfield masks from BmpHeader (only for BITFIELDS compression). */
+function extractBitfieldMasks(header: ReturnType<typeof readHeader>) {
+  if (header.compression !== 3 && header.compression !== 6) return undefined;
   return {
-    redMask: view.getUint32(maskOffset, true),
-    greenMask: view.getUint32(maskOffset + 4, true),
-    blueMask: view.getUint32(maskOffset + 8, true),
-    alphaMask: infoHeader.biCompression === 6 ? view.getUint32(maskOffset + 12, true) : undefined,
+    redMask: header.redMask,
+    greenMask: header.greenMask,
+    blueMask: header.blueMask,
+    alphaMask: header.compression === 6 ? header.alphaMask : undefined,
   };
 }
 
-/** Converts grayscale/RGB/RGBA to RGBA for pixelmatch comparison */
-function addAlphaChannel(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
-  if (channels === 1) {
-    // Grayscale to RGBA
-    const withAlpha = new Uint8Array(data.length * 4);
-    for (let i = 0, j = 0; i < data.length; i++, j += 4) {
-      withAlpha[j] = data[i];
-      withAlpha[j + 1] = data[i];
-      withAlpha[j + 2] = data[i];
-      withAlpha[j + 3] = 255;
-    }
-    return withAlpha;
-  }
-  if (channels === 3) {
-    // RGB to RGBA
-    const withAlpha = new Uint8Array((data.length / 3) * 4);
-    for (let i = 0, j = 0; i < data.length; i += 3, j += 4) {
-      withAlpha[j] = data[i];
-      withAlpha[j + 1] = data[i + 1];
-      withAlpha[j + 2] = data[i + 2];
-      withAlpha[j + 3] = 255;
-    }
-    return withAlpha;
-  }
-  return data; // Already RGBA
-}
-
-/** Encodes a BMP file and compares it against the original BMP file */
+/** Encodes a BMP file with the same parameters as the original and compares the result. */
 async function runTest(filename: string) {
-  // 1. Read original BMP
-  const originalBmp = await Deno.readFile(`./tests/_bmpsuite-2.8/g/${filename}`);
+  // 1. Read original BMP and parse header
+  const originalBmp = await Deno.readFile(join(SUITE_DIR, "g", filename));
+  const originalHeader = readHeader(originalBmp);
 
-  // 2. Parse original header
-  const originalHeader = readBMPHeader(originalBmp);
-  const { fileHeader, infoHeader } = originalHeader;
-
-  // 3. Decode to get raw pixel data
+  // 2. Decode to get raw pixel data
   const raw = decode(originalBmp);
 
-  // 4. Extract metadata for encoding
+  // 3. Build encode options from original header
   const encodeOptions: EncodeOptions = {
-    bitsPerPixel: infoHeader.biBitCount as 1 | 4 | 8 | 16 | 24 | 32,
-    compression: infoHeader.biCompression as 0 | 1 | 2 | 3 | 6,
-    headerType: mapHeaderType(infoHeader.biSize),
-    topDown: infoHeader.biHeight < 0,
-    palette: infoHeader.biBitCount <= 8
-      ? extractColorTable(
-        originalBmp,
-        fileHeader.bfOffBits,
-        infoHeader.biSize,
-        infoHeader.biBitCount as 1 | 2 | 4 | 8,
-        infoHeader.biClrUsed,
-      )
+    bitsPerPixel: originalHeader.bitsPerPixel as 1 | 4 | 8 | 16 | 24 | 32,
+    compression: originalHeader.compression as 0 | 1 | 2 | 3 | 6,
+    headerType: mapHeaderType(originalHeader.headerSize),
+    topDown: originalHeader.height < 0,
+    palette: originalHeader.bitsPerPixel <= 8
+      ? extractPalette(originalBmp, originalHeader)
       : undefined,
-    bitfields: extractBitfieldMasks(originalBmp, originalHeader),
+    bitfields: extractBitfieldMasks(originalHeader),
   };
 
-  // 5. Encode with original parameters
+  // 4. Encode with original parameters
   const encoded = encode(raw, encodeOptions);
 
-  // 6. Parse encoded header
-  const encodedHeader = readBMPHeader(encoded);
-  const { infoHeader: encodedInfoHeader } = encodedHeader;
+  // 5. Parse encoded header and validate
+  const encodedHeader = readHeader(encoded);
 
-  // 7. Validate headers
-  assertEquals(encodedInfoHeader.biWidth, infoHeader.biWidth, "Width mismatch");
-  assertEquals(encodedInfoHeader.biHeight, infoHeader.biHeight, "Height mismatch");
-  assertEquals(encodedInfoHeader.biBitCount, infoHeader.biBitCount, "BitsPerPixel mismatch");
-  assertEquals(encodedInfoHeader.biCompression, infoHeader.biCompression, "Compression mismatch");
-  assertEquals(encodedInfoHeader.biSize, infoHeader.biSize, "HeaderSize mismatch");
+  assertEquals(encodedHeader.width, Math.abs(originalHeader.width), "Width mismatch");
+  assertEquals(
+    Math.abs(encodedHeader.height),
+    Math.abs(originalHeader.height),
+    "Height mismatch",
+  );
+  assertEquals(encodedHeader.bitsPerPixel, originalHeader.bitsPerPixel, "BitsPerPixel mismatch");
+  assertEquals(encodedHeader.compression, originalHeader.compression, "Compression mismatch");
+  assertEquals(encodedHeader.headerSize, originalHeader.headerSize, "HeaderSize mismatch");
 
   // Validate bitfield masks if present
   if (encodeOptions.bitfields) {
-    const encodedBitfieldMasks = extractBitfieldMasks(encoded, encodedHeader);
-    assertEquals(encodedBitfieldMasks, encodeOptions.bitfields, "Bitfield masks mismatch");
+    const encodedMasks = extractBitfieldMasks(encodedHeader);
+    assertEquals(encodedMasks, encodeOptions.bitfields, "Bitfield masks mismatch");
   }
 
   // Validate palette if present
   if (encodeOptions.palette) {
-    const encodedPalette = extractColorTable(
-      encoded,
-      encodedHeader.fileHeader.bfOffBits,
-      encodedInfoHeader.biSize,
-      encodedInfoHeader.biBitCount as 1 | 2 | 4 | 8,
-      encodedInfoHeader.biClrUsed,
-    );
+    const encodedPalette = extractPalette(encoded, encodedHeader);
     assertEquals(encodedPalette, encodeOptions.palette, "Palette mismatch");
   }
 
-  // 8. Decode both BMPs and compare pixels using pixelmatch
-  const originalRaw = decode(originalBmp);
+  // 6. Roundtrip comparison: decode encoded BMP and compare pixels
   const encodedRaw = decode(encoded);
 
-  // Pixel-by-pixel comparison
   const diff = pixelmatch(
-    addAlphaChannel(originalRaw.data, originalRaw.channels),
-    addAlphaChannel(encodedRaw.data, encodedRaw.channels),
+    toRgba(raw.data, raw.channels),
+    toRgba(encodedRaw.data, encodedRaw.channels),
     undefined,
-    originalRaw.width,
-    originalRaw.height,
+    raw.width,
+    raw.height,
   );
   assertEquals(diff, 0, "Found different pixels");
 }

@@ -8,8 +8,6 @@
     "./encode": "./src/encode/mod.ts"
   },
   "fmt": {
-    "lineWidth": 120
-  },
-
-  "lock": false
+    "lineWidth": 100
+  }
 }
