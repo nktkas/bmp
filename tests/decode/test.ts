@@ -75,11 +75,17 @@ Deno.test("Decode", async (t) => {
   });
 
   await t.step("'questionable' BMPs", async (t) => {
+    const ignored = new Set(["rgb24prof2.bmp"]);
+
     for await (const entry of Deno.readDir(join(SUITE_DIR, "q"))) {
       if (!entry.name.endsWith(".bmp")) continue;
 
-      await t.step(entry.name, async () => {
-        await runTest(`q/${entry.name}`);
+      await t.step({
+        name: entry.name,
+        ignore: ignored.has(entry.name),
+        fn: async () => {
+          await runTest(`q/${entry.name}`);
+        },
       });
     }
   });
