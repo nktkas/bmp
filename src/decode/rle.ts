@@ -9,7 +9,7 @@
  */
 
 import type { BmpHeader, RawImageData } from "../common.ts";
-import { getImageLayout, isPaletteGrayscale, writePaletteColor } from "../common.ts";
+import { getImageLayout, isPaletteGrayscale } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /** Callbacks for format-specific pixel reading within the shared RLE loop. */
@@ -71,14 +71,29 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
     decompressRle(bmp, header.dataOffset, absWidth, absHeight, isTopDown, channels, output, {
       readEncoded(bmp, i, count, output, pos) {
         const color = palette[bmp[i++]];
-        for (let j = 0; j < count; j++) {
-          pos = writePaletteColor(output, pos, color, channels);
+        if (channels === 1) {
+          const v = color.red;
+          for (let j = 0; j < count; j++) output[pos++] = v;
+        } else {
+          const r = color.red, g = color.green, b = color.blue;
+          for (let j = 0; j < count; j++) {
+            output[pos++] = r;
+            output[pos++] = g;
+            output[pos++] = b;
+          }
         }
         return i;
       },
       readAbsolute(bmp, i, count, output, pos) {
-        for (let j = 0; j < count; j++) {
-          pos = writePaletteColor(output, pos, palette[bmp[i++]], channels);
+        if (channels === 1) {
+          for (let j = 0; j < count; j++) output[pos++] = palette[bmp[i++]].red;
+        } else {
+          for (let j = 0; j < count; j++) {
+            const c = palette[bmp[i++]];
+            output[pos++] = c.red;
+            output[pos++] = c.green;
+            output[pos++] = c.blue;
+          }
         }
         // RLE8 absolute mode: pad to word boundary
         if (count & 1) i++;
@@ -92,21 +107,53 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
         const byte = bmp[i++];
         const color1 = palette[(byte >> 4) & 0xF];
         const color2 = palette[byte & 0xF];
-        for (let j = 0; j < count; j++) {
-          // Alternate between the two colors
-          pos = writePaletteColor(output, pos, j & 1 ? color2 : color1, channels);
+        if (channels === 1) {
+          const v1 = color1.red, v2 = color2.red;
+          for (let j = 0; j < count; j++) output[pos++] = j & 1 ? v2 : v1;
+        } else {
+          const r1 = color1.red, g1 = color1.green, b1 = color1.blue;
+          const r2 = color2.red, g2 = color2.green, b2 = color2.blue;
+          for (let j = 0; j < count; j++) {
+            if (j & 1) {
+              output[pos++] = r2;
+              output[pos++] = g2;
+              output[pos++] = b2;
+            } else {
+              output[pos++] = r1;
+              output[pos++] = g1;
+              output[pos++] = b1;
+            }
+          }
         }
         return i;
       },
       readAbsolute(bmp, i, count, output, pos) {
         const pairs = count >> 1;
-        for (let j = 0; j < pairs; j++) {
-          const byte = bmp[i++];
-          pos = writePaletteColor(output, pos, palette[(byte >> 4) & 0xF], channels);
-          pos = writePaletteColor(output, pos, palette[byte & 0xF], channels);
-        }
-        if (count & 1) {
-          pos = writePaletteColor(output, pos, palette[(bmp[i++] >> 4) & 0xF], channels);
+        if (channels === 1) {
+          for (let j = 0; j < pairs; j++) {
+            const byte = bmp[i++];
+            output[pos++] = palette[(byte >> 4) & 0xF].red;
+            output[pos++] = palette[byte & 0xF].red;
+          }
+          if (count & 1) output[pos++] = palette[(bmp[i++] >> 4) & 0xF].red;
+        } else {
+          for (let j = 0; j < pairs; j++) {
+            const byte = bmp[i++];
+            let c = palette[(byte >> 4) & 0xF];
+            output[pos++] = c.red;
+            output[pos++] = c.green;
+            output[pos++] = c.blue;
+            c = palette[byte & 0xF];
+            output[pos++] = c.red;
+            output[pos++] = c.green;
+            output[pos++] = c.blue;
+          }
+          if (count & 1) {
+            const c = palette[(bmp[i++] >> 4) & 0xF];
+            output[pos++] = c.red;
+            output[pos++] = c.green;
+            output[pos++] = c.blue;
+          }
         }
         // RLE4 absolute mode: pad to word boundary
         const bytesUsed = (count + 1) >> 1;
