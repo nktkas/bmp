@@ -44,51 +44,58 @@ export function encodeRle4(raw: RawImageData, palette?: Color[]): EncodedRleData
 interface RleEncodeCallbacks {
   /** Bit mask for comparing pixel values. */
   mask: number;
-  /** Writes an encoded-mode entry (repeated pixel value). */
-  writeEncoded(output: number[], index: number, count: number): void;
-  /** Writes an absolute-mode block (uncompressed pixel values). */
+  /** Writes an encoded-mode entry. Returns new position. */
+  writeEncoded(output: Uint8Array, pos: number, index: number, count: number): number;
+  /** Writes an absolute-mode block. Returns new position. */
   writeAbsolute(
-    output: number[],
+    output: Uint8Array,
+    pos: number,
     indices: Uint8Array,
     rowStart: number,
     start: number,
     count: number,
-  ): void;
+  ): number;
 }
 
 /** RLE8: one byte per pixel index, word-aligned absolute blocks. */
 const rle8Callbacks: RleEncodeCallbacks = {
   mask: 0xFF,
-  writeEncoded(output, index, count) {
-    output.push(count, index);
+  writeEncoded(output, pos, index, count) {
+    output[pos++] = count;
+    output[pos++] = index;
+    return pos;
   },
-  writeAbsolute(output, indices, rowStart, start, count) {
-    output.push(0x00, count);
+  writeAbsolute(output, pos, indices, rowStart, start, count) {
+    output[pos++] = 0x00;
+    output[pos++] = count;
     for (let i = 0; i < count; i++) {
-      output.push(indices[rowStart + start + i]);
+      output[pos++] = indices[rowStart + start + i];
     }
-    if (count % 2 === 1) output.push(0x00); // Word-align
+    if (count % 2 === 1) output[pos++] = 0x00; // Word-align
+    return pos;
   },
 };
 
 /** RLE4: nibble-packed values, nibble-packed absolute blocks. */
 const rle4Callbacks: RleEncodeCallbacks = {
   mask: 0x0F,
-  writeEncoded(output, index, count) {
-    // The value byte duplicates the nibble in both halves
+  writeEncoded(output, pos, index, count) {
     const val = index & 0x0F;
-    output.push(count, (val << 4) | val);
+    output[pos++] = count;
+    output[pos++] = (val << 4) | val;
+    return pos;
   },
-  writeAbsolute(output, indices, rowStart, start, count) {
-    // Pack 2 nibbles per byte
-    output.push(0x00, count);
+  writeAbsolute(output, pos, indices, rowStart, start, count) {
+    output[pos++] = 0x00;
+    output[pos++] = count;
     for (let i = 0; i < count; i += 2) {
       const hi = indices[rowStart + start + i] & 0x0F;
       const lo = (i + 1 < count) ? (indices[rowStart + start + i + 1] & 0x0F) : 0;
-      output.push((hi << 4) | lo);
+      output[pos++] = (hi << 4) | lo;
     }
     const byteCount = Math.ceil(count / 2);
-    if (byteCount % 2 === 1) output.push(0x00); // Word-align
+    if (byteCount % 2 === 1) output[pos++] = 0x00; // Word-align
+    return pos;
   },
 };
 
@@ -140,7 +147,9 @@ function encodeRlePixels(
   height: number,
   callbacks: RleEncodeCallbacks,
 ): Uint8Array {
-  const output: number[] = [];
+  // Worst case: 2 bytes per pixel (single-pixel runs) + 2 per row (EOL) + 2 (EOF)
+  const output = new Uint8Array(width * height * 2 + height * 2 + 2);
+  let pos = 0;
 
   for (let y = height - 1; y >= 0; y--) {
     let x = 0;
@@ -151,7 +160,7 @@ function encodeRlePixels(
 
       if (runLength >= 3) {
         // Encoded mode: repeat one value
-        callbacks.writeEncoded(output, indices[rowStart + x], runLength);
+        pos = callbacks.writeEncoded(output, pos, indices[rowStart + x], runLength);
         x += runLength;
       } else {
         // Collect non-repeating pixels for absolute mode
@@ -165,19 +174,21 @@ function encodeRlePixels(
         }
 
         if (absoluteCount >= 3) {
-          callbacks.writeAbsolute(output, indices, rowStart, absoluteStart, absoluteCount);
+          pos = callbacks.writeAbsolute(output, pos, indices, rowStart, absoluteStart, absoluteCount);
         } else {
           // Too short for absolute mode — write as single-pixel encoded runs
           for (let i = 0; i < absoluteCount; i++) {
-            callbacks.writeEncoded(output, indices[rowStart + absoluteStart + i], 1);
+            pos = callbacks.writeEncoded(output, pos, indices[rowStart + absoluteStart + i], 1);
           }
         }
       }
     }
 
-    output.push(0x00, 0x00); // End of line
+    output[pos++] = 0x00;
+    output[pos++] = 0x00; // End of line
   }
 
-  output.push(0x00, 0x01); // End of bitmap
-  return new Uint8Array(output);
+  output[pos++] = 0x00;
+  output[pos++] = 0x01; // End of bitmap
+  return output.subarray(0, pos);
 }
