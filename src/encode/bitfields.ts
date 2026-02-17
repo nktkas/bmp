@@ -34,6 +34,12 @@ export function encodeBitfields(
   const result = new Uint8Array(stride * height);
   const view = new DataView(result.buffer);
 
+  // Pre-compute LUTs: for each 8-bit input value, the scaled output
+  const redLut = createScaleLut(redInfo.bits);
+  const greenLut = createScaleLut(greenInfo.bits);
+  const blueLut = createScaleLut(blueInfo.bits);
+  const alphaLut = masks.alphaMask ? createScaleLut(alphaInfo.bits) : null;
+
   for (let y = 0; y < height; y++) {
     const dstRow = topDown ? y : height - 1 - y;
 
@@ -46,13 +52,13 @@ export function encodeBitfields(
       const b = raw.data[srcOffset + 2];
       const a = raw.channels === 4 ? raw.data[srcOffset + 3] : 255;
 
-      // Scale each channel from 8-bit to target depth, shift into position
+      // LUT lookup + shift into position
       let pixel = 0;
-      pixel |= (scaleColor(r, redInfo.bits) << redInfo.shift) & masks.redMask;
-      pixel |= (scaleColor(g, greenInfo.bits) << greenInfo.shift) & masks.greenMask;
-      pixel |= (scaleColor(b, blueInfo.bits) << blueInfo.shift) & masks.blueMask;
-      if (masks.alphaMask) {
-        pixel |= (scaleColor(a, alphaInfo.bits) << alphaInfo.shift) & masks.alphaMask;
+      pixel |= (redLut[r] << redInfo.shift) & masks.redMask;
+      pixel |= (greenLut[g] << greenInfo.shift) & masks.greenMask;
+      pixel |= (blueLut[b] << blueInfo.shift) & masks.blueMask;
+      if (alphaLut) {
+        pixel |= (alphaLut[a] << alphaInfo.shift) & masks.alphaMask!;
       }
 
       if (bitsPerPixel === 16) {
@@ -66,10 +72,13 @@ export function encodeBitfields(
   return result;
 }
 
-/** Scales an 8-bit color value (0–255) to a target bit depth. */
-function scaleColor(value: number, bits: number): number {
-  if (bits === 0) return 0;
-  if (bits === 8) return value;
+/** Creates a LUT that scales 8-bit values (0–255) to a target bit depth. */
+function createScaleLut(bits: number): Uint8Array {
+  const lut = new Uint8Array(256);
+  if (bits === 0) return lut;
   const max = (1 << bits) - 1;
-  return Math.round((value * max) / 255);
+  for (let i = 0; i < 256; i++) {
+    lut[i] = Math.min(255, Math.round((i * max) / 255));
+  }
+  return lut;
 }
