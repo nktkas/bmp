@@ -30,17 +30,6 @@ export function readPixelRgb(
   return [data[offset], data[offset + 1], data[offset + 2]];
 }
 
-/** Reads one RGBA pixel from raw image data. Alpha defaults to 255 if absent. */
-function readPixelRgba(
-  data: Uint8Array,
-  offset: number,
-  channels: number,
-): [number, number, number, number] {
-  const [r, g, b] = readPixelRgb(data, offset, channels);
-  const a = channels === 4 ? data[offset + 3] : 255;
-  return [r, g, b, a];
-}
-
 /**
  * Converts raw pixel data to RGB555 format (16-bit, 5 bits per channel).
  *
@@ -59,10 +48,20 @@ export function rawToRgb555(raw: RawImageData, topDown: boolean): Uint8Array {
     let srcOffset = y * width * channels;
     let dstOffset = dstRow * stride;
 
-    for (let x = 0; x < width; x++, srcOffset += channels, dstOffset += 2) {
-      const [r, g, b] = readPixelRgb(data, srcOffset, channels);
-      const pixel16 = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
-      view.setUint16(dstOffset, pixel16, true);
+    if (channels === 1) {
+      for (let x = 0; x < width; x++, srcOffset++, dstOffset += 2) {
+        const g = data[srcOffset];
+        const pixel16 = ((g >> 3) << 10) | ((g >> 3) << 5) | (g >> 3);
+        view.setUint16(dstOffset, pixel16, true);
+      }
+    } else {
+      for (let x = 0; x < width; x++, srcOffset += channels, dstOffset += 2) {
+        const r = data[srcOffset];
+        const g = data[srcOffset + 1];
+        const b = data[srcOffset + 2];
+        const pixel16 = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+        view.setUint16(dstOffset, pixel16, true);
+      }
     }
   }
 
@@ -86,11 +85,19 @@ export function rawToBgr(raw: RawImageData, topDown: boolean): Uint8Array {
     let srcOffset = y * width * channels;
     let dstOffset = dstRow * stride;
 
-    for (let x = 0; x < width; x++, srcOffset += channels, dstOffset += 3) {
-      const [r, g, b] = readPixelRgb(data, srcOffset, channels);
-      result[dstOffset] = b;
-      result[dstOffset + 1] = g;
-      result[dstOffset + 2] = r;
+    if (channels === 1) {
+      for (let x = 0; x < width; x++, srcOffset++, dstOffset += 3) {
+        const g = data[srcOffset];
+        result[dstOffset] = g;
+        result[dstOffset + 1] = g;
+        result[dstOffset + 2] = g;
+      }
+    } else {
+      for (let x = 0; x < width; x++, srcOffset += channels, dstOffset += 3) {
+        result[dstOffset] = data[srcOffset + 2]; // B
+        result[dstOffset + 1] = data[srcOffset + 1]; // G
+        result[dstOffset + 2] = data[srcOffset]; // R
+      }
     }
   }
 
@@ -114,12 +121,28 @@ export function rawToBgra(raw: RawImageData, topDown: boolean): Uint8Array {
     let srcOffset = y * width * channels;
     let dstOffset = dstRow * stride;
 
-    for (let x = 0; x < width; x++, srcOffset += channels, dstOffset += 4) {
-      const [r, g, b, a] = readPixelRgba(data, srcOffset, channels);
-      result[dstOffset] = b;
-      result[dstOffset + 1] = g;
-      result[dstOffset + 2] = r;
-      result[dstOffset + 3] = a;
+    if (channels === 1) {
+      for (let x = 0; x < width; x++, srcOffset++, dstOffset += 4) {
+        const g = data[srcOffset];
+        result[dstOffset] = g;
+        result[dstOffset + 1] = g;
+        result[dstOffset + 2] = g;
+        result[dstOffset + 3] = 255;
+      }
+    } else if (channels === 3) {
+      for (let x = 0; x < width; x++, srcOffset += 3, dstOffset += 4) {
+        result[dstOffset] = data[srcOffset + 2]; // B
+        result[dstOffset + 1] = data[srcOffset + 1]; // G
+        result[dstOffset + 2] = data[srcOffset]; // R
+        result[dstOffset + 3] = 255;
+      }
+    } else {
+      for (let x = 0; x < width; x++, srcOffset += 4, dstOffset += 4) {
+        result[dstOffset] = data[srcOffset + 2]; // B
+        result[dstOffset + 1] = data[srcOffset + 1]; // G
+        result[dstOffset + 2] = data[srcOffset]; // R
+        result[dstOffset + 3] = data[srcOffset + 3]; // A
+      }
     }
   }
 
