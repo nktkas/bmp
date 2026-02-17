@@ -8,7 +8,6 @@
  */
 
 import type { Color, RawImageData } from "../common.ts";
-import { readPixelRgb } from "./pixel.ts";
 
 // ============================================================================
 // K-d Tree for fast nearest-color search
@@ -260,16 +259,26 @@ export function generatePalette(raw: RawImageData, numColors: number): Color[] {
  * @returns Array of palette indices, one per pixel.
  */
 export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Array {
-  const pixelCount = raw.width * raw.height;
+  const { data, channels, width, height } = raw;
+
+  const pixelCount = width * height;
   const indices = new Uint8Array(pixelCount);
 
+  // K-d tree + cache for large palettes
   if (palette.length >= 64) {
-    // K-d tree + cache for large palettes
     const tree = new KdTree(palette);
     const cache = new Map<number, number>();
 
     for (let i = 0; i < pixelCount; i++) {
-      const [r, g, b] = readPixelRgb(raw.data, i * raw.channels, raw.channels);
+      const offset = i * channels;
+      let r: number, g: number, b: number;
+      if (channels === 1) r = g = b = data[offset];
+      else {
+        r = data[offset];
+        g = data[offset + 1];
+        b = data[offset + 2];
+      }
+
       const packed = (r << 16) | (g << 8) | b;
       let index = cache.get(packed);
       if (index === undefined) {
@@ -278,9 +287,8 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
       }
       indices[i] = index;
     }
-  } else {
     // Linear search for small palettes
-
+  } else {
     // flat typed arrays for faster access
     const palLen = palette.length;
     const palR = new Uint8Array(palLen);
@@ -293,7 +301,15 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
     }
 
     for (let i = 0; i < pixelCount; i++) {
-      const [r, g, b] = readPixelRgb(raw.data, i * raw.channels, raw.channels);
+      const offset = i * channels;
+      let r: number, g: number, b: number;
+      if (channels === 1) r = g = b = data[offset];
+      else {
+        r = data[offset];
+        g = data[offset + 1];
+        b = data[offset + 2];
+      }
+
       let minDist = Infinity;
       let closest = 0;
       for (let j = 0; j < palLen; j++) {
