@@ -8,7 +8,7 @@
  * - RLE24 (compression = 4 with 24bpp): each run is a BGR triplet repeated N times
  */
 
-import { type BmpHeader, getImageLayout, isPaletteGrayscale, type RawImageData } from "../common.ts";
+import { type BmpHeader, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /** Callbacks for format-specific pixel reading within the shared RLE loop. */
@@ -65,19 +65,22 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
 
   // RLE8 / RLE4: palette-based
   const palette = extractPalette(bmp, header);
-  const channels = isPaletteGrayscale(palette) ? 1 : 3;
+  const palR = palette.red;
+  const palG = palette.green;
+  const palB = palette.blue;
+  const channels = palette.isGrayscale ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
   if (compression === 1) {
     // RLE8: one byte per pixel index
     decompressRle(bmp, dataOffset, absWidth, absHeight, isTopDown, channels, output, {
       readEncoded(bmp, i, count, output, pos) {
-        const color = palette[bmp[i++]];
+        const idx = bmp[i++];
         if (channels === 1) {
-          const v = color.red;
+          const v = palR[idx];
           for (let j = 0; j < count; j++) output[pos++] = v;
         } else {
-          const r = color.red, g = color.green, b = color.blue;
+          const r = palR[idx], g = palG[idx], b = palB[idx];
           for (let j = 0; j < count; j++) {
             output[pos++] = r; // R
             output[pos++] = g; // G
@@ -88,13 +91,13 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
       },
       readAbsolute(bmp, i, count, output, pos) {
         if (channels === 1) {
-          for (let j = 0; j < count; j++) output[pos++] = palette[bmp[i++]].red;
+          for (let j = 0; j < count; j++) output[pos++] = palR[bmp[i++]];
         } else {
           for (let j = 0; j < count; j++) {
-            const c = palette[bmp[i++]];
-            output[pos++] = c.red; // R
-            output[pos++] = c.green; // G
-            output[pos++] = c.blue; // B
+            const idx = bmp[i++];
+            output[pos++] = palR[idx]; // R
+            output[pos++] = palG[idx]; // G
+            output[pos++] = palB[idx]; // B
           }
         }
         // RLE8 absolute mode: pad to word boundary
@@ -107,14 +110,14 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
     decompressRle(bmp, dataOffset, absWidth, absHeight, isTopDown, channels, output, {
       readEncoded(bmp, i, count, output, pos) {
         const byte = bmp[i++];
-        const color1 = palette[(byte >> 4) & 0xF];
-        const color2 = palette[byte & 0xF];
+        const idx1 = (byte >> 4) & 0xF;
+        const idx2 = byte & 0xF;
         if (channels === 1) {
-          const v1 = color1.red, v2 = color2.red;
+          const v1 = palR[idx1], v2 = palR[idx2];
           for (let j = 0; j < count; j++) output[pos++] = j & 1 ? v2 : v1;
         } else {
-          const r1 = color1.red, g1 = color1.green, b1 = color1.blue;
-          const r2 = color2.red, g2 = color2.green, b2 = color2.blue;
+          const r1 = palR[idx1], g1 = palG[idx1], b1 = palB[idx1];
+          const r2 = palR[idx2], g2 = palG[idx2], b2 = palB[idx2];
           for (let j = 0; j < count; j++) {
             if (j & 1) {
               output[pos++] = r2; // R
@@ -134,27 +137,27 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
         if (channels === 1) {
           for (let j = 0; j < pairs; j++) {
             const byte = bmp[i++];
-            output[pos++] = palette[(byte >> 4) & 0xF].red;
-            output[pos++] = palette[byte & 0xF].red;
+            output[pos++] = palR[(byte >> 4) & 0xF];
+            output[pos++] = palR[byte & 0xF];
           }
-          if (count & 1) output[pos++] = palette[(bmp[i++] >> 4) & 0xF].red;
+          if (count & 1) output[pos++] = palR[(bmp[i++] >> 4) & 0xF];
         } else {
           for (let j = 0; j < pairs; j++) {
             const byte = bmp[i++];
-            let c = palette[(byte >> 4) & 0xF];
-            output[pos++] = c.red; // R
-            output[pos++] = c.green; // G
-            output[pos++] = c.blue; // B
-            c = palette[byte & 0xF];
-            output[pos++] = c.red; // R
-            output[pos++] = c.green; // G
-            output[pos++] = c.blue; // B
+            let idx = (byte >> 4) & 0xF;
+            output[pos++] = palR[idx]; // R
+            output[pos++] = palG[idx]; // G
+            output[pos++] = palB[idx]; // B
+            idx = byte & 0xF;
+            output[pos++] = palR[idx]; // R
+            output[pos++] = palG[idx]; // G
+            output[pos++] = palB[idx]; // B
           }
           if (count & 1) {
-            const c = palette[(bmp[i++] >> 4) & 0xF];
-            output[pos++] = c.red; // R
-            output[pos++] = c.green; // G
-            output[pos++] = c.blue; // B
+            const idx = (bmp[i++] >> 4) & 0xF;
+            output[pos++] = palR[idx]; // R
+            output[pos++] = palG[idx]; // G
+            output[pos++] = palB[idx]; // B
           }
         }
         // RLE4 absolute mode: pad to word boundary

@@ -10,7 +10,7 @@
  * The lookup tables below are defined by the CCITT Group 3 standard.
  */
 
-import { type BmpHeader, getImageLayout, isPaletteGrayscale, type RawImageData } from "../common.ts";
+import { type BmpHeader, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 // ============================================================================
@@ -322,21 +322,15 @@ export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData 
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
 
   const palette = extractPalette(bmp, header);
-  const channels = isPaletteGrayscale(palette) ? 1 : 3;
+  const palR = palette.red;
+  const palG = palette.green;
+  const palB = palette.blue;
+
+  const channels = palette.isGrayscale ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
   // Decompress Huffman data into a flat array of 0/1 palette indices
   const pixels = decompressHuffman(bmp, dataOffset, absWidth, absHeight);
-
-  // Flatten palette into typed arrays for fast indexed access
-  const palR = new Uint8Array(palette.length);
-  const palG = new Uint8Array(palette.length);
-  const palB = new Uint8Array(palette.length);
-  for (let i = 0; i < palette.length; i++) {
-    palR[i] = palette[i].red;
-    palG[i] = palette[i].green;
-    palB[i] = palette[i].blue;
-  }
 
   // Map palette indices to output pixels, handling row order
   for (let y = 0; y < absHeight; y++) {

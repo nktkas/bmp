@@ -150,13 +150,3 @@ export function analyzeBitMask(mask: number): { shift: number; bits: number } {
 
   return { shift, bits };
 }
-
-/**
- * Checks whether every color in the palette is a shade of gray (R = G = B).
- *
- * @param palette - Array of palette colors.
- * @returns `true` if all colors have equal R, G, and B values.
- */
-export function isPaletteGrayscale(palette: Color[]): boolean {
-  return palette.every((c) => c.red === c.green && c.green === c.blue);
-}

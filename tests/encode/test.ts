@@ -6,11 +6,20 @@
 // deno-lint-ignore-file no-import-prefix
 import { assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
-import { decode, encode, type EncodeOptions } from "../../src/mod.ts";
+import { type Color, decode, encode, type EncodeOptions } from "../../src/mod.ts";
 import { readHeader } from "../../src/decode/header.ts";
-import { extractPalette } from "../../src/decode/palette.ts";
+import { extractPalette, type FlatPalette } from "../../src/decode/palette.ts";
 import pixelmatch from "npm:pixelmatch@7";
 import { SUITE_DIR, toRgba } from "../_utils.ts";
+
+/** Converts a FlatPalette back to Color[] for encode compatibility. */
+function toColorArray(pal: FlatPalette): Color[] {
+  const colors: Color[] = [];
+  for (let i = 0; i < pal.red.length; i++) {
+    colors.push({ red: pal.red[i], green: pal.green[i], blue: pal.blue[i] });
+  }
+  return colors;
+}
 
 /** Maps DIB header size to HeaderType string. */
 function mapHeaderType(
@@ -47,7 +56,7 @@ async function runTest(filename: string) {
     compression: originalHeader.compression as 0 | 1 | 2 | 3 | 6,
     headerType: mapHeaderType(originalHeader.headerSize),
     topDown: originalHeader.height < 0,
-    palette: originalHeader.bitsPerPixel <= 8 ? extractPalette(originalBmp, originalHeader) : undefined,
+    palette: originalHeader.bitsPerPixel <= 8 ? toColorArray(extractPalette(originalBmp, originalHeader)) : undefined,
     bitfields: extractBitfieldMasks(originalHeader),
   };
 
@@ -75,7 +84,7 @@ async function runTest(filename: string) {
 
   // Validate palette if present
   if (encodeOptions.palette) {
-    const encodedPalette = extractPalette(encoded, encodedHeader);
+    const encodedPalette = toColorArray(extractPalette(encoded, encodedHeader));
     assertEquals(encodedPalette, encodeOptions.palette, "Palette mismatch");
   }
 

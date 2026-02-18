@@ -6,17 +6,29 @@
  * indices into a palette of colors located between the DIB header and pixel data.
  */
 
-import type { BmpHeader, Color } from "../common.ts";
+import type { BmpHeader } from "../common.ts";
+
+/** Flat palette with pre-split channel arrays for fast indexed lookup. */
+export interface FlatPalette {
+  /** Red channel values, one per palette entry. */
+  red: Uint8Array;
+  /** Green channel values, one per palette entry. */
+  green: Uint8Array;
+  /** Blue channel values, one per palette entry. */
+  blue: Uint8Array;
+  /** Whether all colors are grayscale (R = G = B). */
+  isGrayscale: boolean;
+}
 
 /**
- * Reads the color palette from an indexed BMP image.
+ * Reads the color palette from an indexed BMP image into flat typed arrays.
  *
  * @param bmp - Complete BMP file contents.
  * @param header - Parsed BMP header.
- * @returns An array of colors, always sized to the maximum for the bit depth,
- *          with missing entries filled as black.
+ * @returns Flat palette arrays sized to the maximum for the bit depth,
+ *          with missing entries zeroed (black).
  */
-export function extractPalette(bmp: Uint8Array, header: BmpHeader): Color[] {
+export function extractPalette(bmp: Uint8Array, header: BmpHeader): FlatPalette {
   const { dataOffset, headerSize, bitsPerPixel, colorsUsed } = header;
 
   // Palette starts right after the 14-byte file header + DIB header
@@ -34,21 +46,23 @@ export function extractPalette(bmp: Uint8Array, header: BmpHeader): Color[] {
     maxColors,
   );
 
-  // Read palette entries (stored in BGR order in the file)
-  const palette: Color[] = [];
+  // Read palette entries into flat arrays (stored in BGR order in the file)
+  // Uint8Array is pre-zeroed, so unused entries are already black
+  const red = new Uint8Array(maxColors);
+  const green = new Uint8Array(maxColors);
+  const blue = new Uint8Array(maxColors);
+  let isGrayscale = true;
+
   for (let i = 0; i < colorCount; i++) {
     const offset = paletteOffset + i * bytesPerEntry;
-    palette.push({
-      red: bmp[offset + 2], // R
-      green: bmp[offset + 1], // G
-      blue: bmp[offset], // B
-    });
+    const r = bmp[offset + 2]; // R
+    const g = bmp[offset + 1]; // G
+    const b = bmp[offset]; // B
+    red[i] = r;
+    green[i] = g;
+    blue[i] = b;
+    if (isGrayscale && (r !== g || g !== b)) isGrayscale = false;
   }
 
-  // Fill remaining slots with black so index lookups never go out of bounds
-  while (palette.length < maxColors) {
-    palette.push({ red: 0, green: 0, blue: 0 });
-  }
-
-  return palette;
+  return { red, green, blue, isGrayscale };
 }

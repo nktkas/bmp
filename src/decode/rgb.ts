@@ -7,7 +7,7 @@
  * (16/24/32/64-bit) encode colors directly in the pixel data.
  */
 
-import { type BmpHeader, calculateStride, getImageLayout, isPaletteGrayscale, type RawImageData } from "../common.ts";
+import { type BmpHeader, calculateStride, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /**
@@ -44,19 +44,12 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
   const palette = extractPalette(bmp, header);
+  const palR = palette.red;
+  const palG = palette.green;
+  const palB = palette.blue;
 
-  const channels = isPaletteGrayscale(palette) ? 1 : 3;
+  const channels = palette.isGrayscale ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
-
-  // Flatten palette into typed arrays for fast indexed access
-  const palR = new Uint8Array(palette.length);
-  const palG = new Uint8Array(palette.length);
-  const palB = new Uint8Array(palette.length);
-  for (let i = 0; i < palette.length; i++) {
-    palR[i] = palette[i].red;
-    palG[i] = palette[i].green;
-    palB[i] = palette[i].blue;
-  }
 
   if (bitsPerPixel === 8) {
     // 8-bit: one index per byte, no bit unpacking needed
