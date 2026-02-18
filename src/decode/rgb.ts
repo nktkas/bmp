@@ -70,8 +70,45 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
         }
       }
     }
+  } else if (bitsPerPixel === 4) {
+    // 4-bit: two pixels per byte, high nibble first
+    const fullBytes = absWidth >> 1;
+    const hasOdd = absWidth & 1;
+
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : absHeight - 1 - y;
+      const srcRowStart = dataOffset + srcY * stride;
+      let dstOffset = y * absWidth * channels;
+
+      if (channels === 1) {
+        for (let b = 0; b < fullBytes; b++) {
+          const byte = bmp[srcRowStart + b];
+          output[dstOffset++] = palR[(byte >> 4) & 0xF];
+          output[dstOffset++] = palR[byte & 0xF];
+        }
+        if (hasOdd) output[dstOffset] = palR[(bmp[srcRowStart + fullBytes] >> 4) & 0xF];
+      } else {
+        for (let b = 0; b < fullBytes; b++) {
+          const byte = bmp[srcRowStart + b];
+          let idx = (byte >> 4) & 0xF;
+          output[dstOffset++] = palR[idx];
+          output[dstOffset++] = palG[idx];
+          output[dstOffset++] = palB[idx];
+          idx = byte & 0xF;
+          output[dstOffset++] = palR[idx];
+          output[dstOffset++] = palG[idx];
+          output[dstOffset++] = palB[idx];
+        }
+        if (hasOdd) {
+          const idx = (bmp[srcRowStart + fullBytes] >> 4) & 0xF;
+          output[dstOffset++] = palR[idx];
+          output[dstOffset++] = palG[idx];
+          output[dstOffset++] = palB[idx];
+        }
+      }
+    }
   } else {
-    // 1/2/4-bit: generic bit unpacking
+    // 1/2-bit: generic bit unpacking
     const pixelsPerByte = 8 / bitsPerPixel;
     const indexMask = (1 << bitsPerPixel) - 1;
 
