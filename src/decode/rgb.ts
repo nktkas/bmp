@@ -43,6 +43,7 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
+
   const palette = extractPalette(bmp, header);
   const palR = palette.red;
   const palG = palette.green;
@@ -240,18 +241,22 @@ function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
-  const output = new Uint8Array(absWidth * absHeight * 3);
 
+  const rowBytes = absWidth * 3;
+  const output = new Uint8Array(rowBytes * absHeight);
+
+  // Copy rows (handling bottom-up → top-down row order)
   for (let y = 0; y < absHeight; y++) {
     const srcY = isTopDown ? y : absHeight - 1 - y;
-    let srcOffset = dataOffset + srcY * stride;
-    let dstOffset = y * absWidth * 3;
+    const srcStart = dataOffset + srcY * stride;
+    output.set(bmp.subarray(srcStart, srcStart + rowBytes), y * rowBytes);
+  }
 
-    for (let x = 0; x < absWidth; x++, srcOffset += 3) {
-      output[dstOffset++] = bmp[srcOffset + 2]; // R
-      output[dstOffset++] = bmp[srcOffset + 1]; // G
-      output[dstOffset++] = bmp[srcOffset]; // B
-    }
+  // Swap BGR → RGB (swap first and third byte of each triplet)
+  for (let i = 0; i < output.length; i += 3) {
+    const tmp = output[i];
+    output[i] = output[i + 2];
+    output[i + 2] = tmp;
   }
 
   return { width: absWidth, height: absHeight, channels: 3, data: output };
@@ -263,45 +268,51 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
 
-  // Scan alpha bytes to decide whether to output RGB or RGBA
+  // Linear alpha scan — 32bpp has no stride padding, so alpha bytes are at a fixed stride of 4 regardless of row order
   let hasAlpha = false;
-  for (let y = 0; y < absHeight && !hasAlpha; y++) {
-    const srcY = isTopDown ? y : absHeight - 1 - y;
-    let srcOffset = dataOffset + srcY * stride + 3;
-    for (let x = 0; x < absWidth; x++, srcOffset += 4) {
-      if (bmp[srcOffset] !== 0) {
-        hasAlpha = true;
-        break;
-      }
+  const pixelEnd = dataOffset + absWidth * absHeight * 4;
+  for (let offset = dataOffset + 3; offset < pixelEnd; offset += 4) {
+    if (bmp[offset] !== 0) {
+      hasAlpha = true;
+      break;
     }
   }
 
   if (hasAlpha) {
-    const output = new Uint8Array(absWidth * absHeight * 4);
+    // Two-pass: memcpy rows (reordering bottom-up → top-down), then BGRA → RGBA swap
+    const rowBytes = absWidth * 4;
+    const output = new Uint8Array(rowBytes * absHeight);
+
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : absHeight - 1 - y;
-      let srcOffset = dataOffset + srcY * stride;
-      let dstOffset = y * absWidth * 4;
-      for (let x = 0; x < absWidth; x++, srcOffset += 4) {
-        output[dstOffset++] = bmp[srcOffset + 2]; // R
-        output[dstOffset++] = bmp[srcOffset + 1]; // G
-        output[dstOffset++] = bmp[srcOffset]; // B
-        output[dstOffset++] = bmp[srcOffset + 3]; // A
-      }
+      const srcStart = dataOffset + srcY * stride;
+      output.set(bmp.subarray(srcStart, srcStart + rowBytes), y * rowBytes);
     }
+
+    // Swap B (byte 0) ↔ R (byte 2) in each 4-byte group
+    for (let i = 0; i < output.length; i += 4) {
+      const tmp = output[i];
+      output[i] = output[i + 2];
+      output[i + 2] = tmp;
+    }
+
     return { width: absWidth, height: absHeight, channels: 4, data: output };
   } else {
+    const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
     const output = new Uint8Array(absWidth * absHeight * 3);
+
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : absHeight - 1 - y;
       let srcOffset = dataOffset + srcY * stride;
       let dstOffset = y * absWidth * 3;
       for (let x = 0; x < absWidth; x++, srcOffset += 4) {
-        output[dstOffset++] = bmp[srcOffset + 2]; // R
-        output[dstOffset++] = bmp[srcOffset + 1]; // G
-        output[dstOffset++] = bmp[srcOffset]; // B
+        const pixel = view.getUint32(srcOffset, true);
+        output[dstOffset++] = (pixel >> 16) & 0xFF; // R
+        output[dstOffset++] = (pixel >> 8) & 0xFF; // G
+        output[dstOffset++] = pixel & 0xFF; // B
       }
     }
+
     return { width: absWidth, height: absHeight, channels: 3, data: output };
   }
 }
