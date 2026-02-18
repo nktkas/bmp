@@ -276,23 +276,34 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
     }
   }
 
-  const channels = hasAlpha ? 4 : 3;
-  const output = new Uint8Array(absWidth * absHeight * channels);
-
-  for (let y = 0; y < absHeight; y++) {
-    const srcY = isTopDown ? y : absHeight - 1 - y;
-    let srcOffset = dataOffset + srcY * stride;
-    let dstOffset = y * absWidth * channels;
-
-    for (let x = 0; x < absWidth; x++, srcOffset += 4) {
-      output[dstOffset++] = bmp[srcOffset + 2]; // R
-      output[dstOffset++] = bmp[srcOffset + 1]; // G
-      output[dstOffset++] = bmp[srcOffset]; // B
-      if (hasAlpha) output[dstOffset++] = bmp[srcOffset + 3]; // A
+  if (hasAlpha) {
+    const output = new Uint8Array(absWidth * absHeight * 4);
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : absHeight - 1 - y;
+      let srcOffset = dataOffset + srcY * stride;
+      let dstOffset = y * absWidth * 4;
+      for (let x = 0; x < absWidth; x++, srcOffset += 4) {
+        output[dstOffset++] = bmp[srcOffset + 2]; // R
+        output[dstOffset++] = bmp[srcOffset + 1]; // G
+        output[dstOffset++] = bmp[srcOffset]; // B
+        output[dstOffset++] = bmp[srcOffset + 3]; // A
+      }
     }
+    return { width: absWidth, height: absHeight, channels: 4, data: output };
+  } else {
+    const output = new Uint8Array(absWidth * absHeight * 3);
+    for (let y = 0; y < absHeight; y++) {
+      const srcY = isTopDown ? y : absHeight - 1 - y;
+      let srcOffset = dataOffset + srcY * stride;
+      let dstOffset = y * absWidth * 3;
+      for (let x = 0; x < absWidth; x++, srcOffset += 4) {
+        output[dstOffset++] = bmp[srcOffset + 2]; // R
+        output[dstOffset++] = bmp[srcOffset + 1]; // G
+        output[dstOffset++] = bmp[srcOffset]; // B
+      }
+    }
+    return { width: absWidth, height: absHeight, channels: 3, data: output };
   }
-
-  return { width: absWidth, height: absHeight, channels, data: output };
 }
 
 /** Decodes 64-bit BI_RGB pixels (s2.13 fixed-point BGRA → sRGB RGBA). */
