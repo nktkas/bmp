@@ -14,6 +14,43 @@ import { type BmpHeader, getImageLayout, isPaletteGrayscale, type RawImageData }
 import { extractPalette } from "./palette.ts";
 
 // ============================================================================
+// Huffman trie
+// ============================================================================
+
+/** Node in a binary trie for Huffman code lookup. */
+interface TrieNode {
+  /** Run length value (only defined at leaf nodes). */
+  value: number;
+  /** Child nodes: index 0 for bit 0, index 1 for bit 1. */
+  children: [TrieNode | null, TrieNode | null];
+}
+
+/** Builds a binary trie from a table of bit-string codes → run lengths. */
+function buildTrie(table: Record<string, number>): TrieNode {
+  const root: TrieNode = { value: -1, children: [null, null] };
+  for (const [code, value] of Object.entries(table)) {
+    let node = root;
+    for (let i = 0; i < code.length; i++) {
+      const bit = code.charCodeAt(i) - 48; // '0'→0, '1'→1
+      if (!node.children[bit]) {
+        node.children[bit] = { value: -1, children: [null, null] };
+      }
+      node = node.children[bit]!;
+    }
+    node.value = value;
+  }
+  return root;
+}
+
+/** Merged trie containing both make-up and terminating codes for one color. */
+interface RunTries {
+  /** Trie for make-up codes (run lengths 64–1728, multiples of 64). */
+  makeup: TrieNode;
+  /** Trie for terminating codes (run lengths 0–63). */
+  terminating: TrieNode;
+}
+
+// ============================================================================
 // Huffman code tables (CCITT Group 3 1D standard)
 // ============================================================================
 
@@ -219,8 +256,55 @@ const BLACK_MAKEUP: Record<string, number> = {
   "0000001100101": 1728,
 };
 
-/** End-of-line marker: twelve 0-bits followed by a 1-bit. */
-const EOL = "000000000001";
+// Build tries once at module load time
+const WHITE_TRIES: RunTries = { makeup: buildTrie(WHITE_MAKEUP), terminating: buildTrie(WHITE_TERMINATING) };
+const BLACK_TRIES: RunTries = { makeup: buildTrie(BLACK_MAKEUP), terminating: buildTrie(BLACK_TERMINATING) };
+
+// ============================================================================
+// Bit reader
+// ============================================================================
+
+/** Reads individual bits from a byte array, MSB first. */
+class BitReader {
+  private data: Uint8Array;
+  private bitPos: number;
+  private totalBits: number;
+
+  constructor(data: Uint8Array, startByte: number) {
+    this.data = data;
+    this.bitPos = startByte * 8;
+    this.totalBits = data.length * 8;
+  }
+
+  /** Reads one bit and advances the position. Returns 0 or 1. */
+  readBit(): number {
+    const byteIdx = this.bitPos >>> 3;
+    const bitIdx = 7 - (this.bitPos & 7);
+    this.bitPos++;
+    return (this.data[byteIdx] >>> bitIdx) & 1;
+  }
+
+  /** Advances position by `n` bits. */
+  skip(n: number): void {
+    this.bitPos += n;
+  }
+
+  /** Returns true if there are at least `n` bits remaining. */
+  hasAtLeast(n: number): boolean {
+    return this.bitPos + n <= this.totalBits;
+  }
+
+  /** Checks whether the next 12 bits match the EOL pattern (000000000001). */
+  isEol(): boolean {
+    if (!this.hasAtLeast(12)) return false;
+    let pos = this.bitPos;
+    for (let i = 0; i < 11; i++) {
+      if (((this.data[pos >>> 3] >>> (7 - (pos & 7))) & 1) !== 0) return false;
+      pos++;
+    }
+    return ((this.data[pos >>> 3] >>> (7 - (pos & 7))) & 1) === 1;
+  }
+}
 
 // ============================================================================
 // Decoder
@@ -285,99 +369,90 @@ function decompressHuffman(
   absHeight: number,
 ): Uint8Array {
   const pixels = new Uint8Array(absWidth * absHeight);
-
-  // Convert compressed bytes to a binary string for easier parsing
-  let bitString = "";
-  for (let i = dataOffset; i < bmp.length; i++) {
-    bitString += bmp[i].toString(2).padStart(8, "0");
-  }
-
-  let bitPos = 0;
+  const reader = new BitReader(bmp, dataOffset);
   let pixelPos = 0;
 
   // Skip initial EOL marker if present
-  if (bitString.substring(bitPos, bitPos + 12) === EOL) {
-    bitPos += 12;
-  }
+  if (reader.isEol()) reader.skip(12);
 
   for (let row = 0; row < absHeight; row++) {
     let col = 0;
     let isWhite = true; // Each scan line starts with a white run
 
     while (col < absWidth) {
-      const run = decodeRun(bitString, bitPos, isWhite);
-      if (!run) break;
-
-      bitPos += run.bitsConsumed;
+      const runLength = decodeRun(reader, isWhite);
+      if (runLength < 0) break;
 
       // Fill pixels with the current color (0 = white, 1 = black)
       const colorValue = isWhite ? 0 : 1;
-      for (let i = 0; i < run.length && col < absWidth; i++, col++) {
+      const end = Math.min(col + runLength, absWidth);
+      while (col < end) {
         pixels[pixelPos++] = colorValue;
+        col++;
       }
 
       isWhite = !isWhite;
     }
 
     // Scan forward to the next EOL marker to align to the next row
-    while (bitPos < bitString.length - 12) {
-      if (bitString.substring(bitPos, bitPos + 12) === EOL) {
-        bitPos += 12;
+    while (reader.hasAtLeast(12)) {
+      if (reader.isEol()) {
+        reader.skip(12);
         break;
       }
-      bitPos++;
+      reader.skip(1);
     }
   }
 
   return pixels;
 }
 
-/** Decodes a single run (white or black) from the Huffman bit stream. */
-function decodeRun(
-  bitString: string,
-  startPos: number,
-  isWhite: boolean,
-): { length: number; bitsConsumed: number } | null {
-  const terminatingTable = isWhite ? WHITE_TERMINATING : BLACK_TERMINATING;
-  const makeupTable = isWhite ? WHITE_MAKEUP : BLACK_MAKEUP;
-
+/**
+ * Decodes a single run (white or black) by walking the Huffman tries.
+ * Returns the run length, or -1 if no valid code was found.
+ */
+function decodeRun(reader: BitReader, isWhite: boolean): number {
+  const tries = isWhite ? WHITE_TRIES : BLACK_TRIES;
   let totalLength = 0;
-  let pos = startPos;
 
   // Decode make-up codes (for runs >= 64 pixels)
-  while (true) {
-    let found = false;
-    for (let len = 2; len <= 13 && pos + len <= bitString.length; len++) {
-      const code = bitString.substring(pos, pos + len);
-      if (makeupTable[code] !== undefined) {
-        totalLength += makeupTable[code];
-        pos += len;
-        found = true;
-        break;
-      }
-    }
-    if (!found) break;
+  while (reader.hasAtLeast(2)) {
+    const value = walkTrie(reader, tries.makeup);
+    if (value < 0) break;
+    totalLength += value;
   }
 
   // Decode the required terminating code (run length 0–63)
-  for (let len = 2; len <= 13 && pos + len <= bitString.length; len++) {
-    const code = bitString.substring(pos, pos + len);
-    if (terminatingTable[code] !== undefined) {
-      totalLength += terminatingTable[code];
-      pos += len;
-      return { length: totalLength, bitsConsumed: pos - startPos };
+  if (reader.hasAtLeast(2)) {
+    const value = walkTrie(reader, tries.terminating);
+    if (value >= 0) {
+      return totalLength + value;
     }
   }
 
   // Check for end-of-line marker
-  if (bitString.substring(pos, pos + 12) === EOL) {
-    return null;
-  }
+  if (reader.isEol()) return -1;
 
   // Return partial result if make-up codes were found
-  if (totalLength > 0) {
-    return { length: totalLength, bitsConsumed: pos - startPos };
+  return totalLength > 0 ? totalLength : -1;
+}
+
+/** Walks a Huffman trie bit-by-bit. Returns the decoded value, or -1 if no match. */
+function walkTrie(reader: BitReader, root: TrieNode): number {
+  let node: TrieNode | null = root;
+  let bitsRead = 0;
+
+  while (node && reader.hasAtLeast(1)) {
+    const bit = reader.readBit();
+    bitsRead++;
+    node = node.children[bit];
+
+    if (node && node.value >= 0) {
+      return node.value; // Found a complete code
+    }
   }
 
-  return null;
+  // No match found — rewind the bits we consumed
+  reader.skip(-bitsRead);
+  return -1;
 }
