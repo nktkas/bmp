@@ -66,7 +66,7 @@ const rle8Callbacks: RleEncodeCallbacks = {
     return pos;
   },
   writeAbsolute(output, pos, indices, rowStart, start, count) {
-    output[pos++] = 0x00;
+    output[pos++] = 0x00; // Escape: absolute mode
     output[pos++] = count;
     for (let i = 0; i < count; i++) {
       output[pos++] = indices[rowStart + start + i];
@@ -86,7 +86,7 @@ const rle4Callbacks: RleEncodeCallbacks = {
     return pos;
   },
   writeAbsolute(output, pos, indices, rowStart, start, count) {
-    output[pos++] = 0x00;
+    output[pos++] = 0x00; // Escape: absolute mode
     output[pos++] = count;
     for (let i = 0; i < count; i += 2) {
       const hi = indices[rowStart + start + i] & 0x0F;
@@ -184,11 +184,11 @@ function encodeRlePixels(
       }
     }
 
-    output[pos++] = 0x00;
+    output[pos++] = 0x00; // Escape
     output[pos++] = 0x00; // End of line
   }
 
-  output[pos++] = 0x00;
+  output[pos++] = 0x00; // Escape
   output[pos++] = 0x01; // End of bitmap
   return output.subarray(0, pos);
 }

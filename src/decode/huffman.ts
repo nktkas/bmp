@@ -10,8 +10,7 @@
  * The lookup tables below are defined by the CCITT Group 3 standard.
  */
 
-import type { BmpHeader, RawImageData } from "../common.ts";
-import { getImageLayout, isPaletteGrayscale, writePaletteColor } from "../common.ts";
+import { type BmpHeader, getImageLayout, isPaletteGrayscale, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 // ============================================================================
@@ -20,7 +19,7 @@ import { extractPalette } from "./palette.ts";
 
 // --- White run codes ---
 
-/** White terminating codes: bit patterns → run lengths 0–63 */
+/** White terminating codes: bit patterns → run lengths 0–63. */
 const WHITE_TERMINATING: Record<string, number> = {
   "00110101": 0,
   "000111": 1,
@@ -88,7 +87,7 @@ const WHITE_TERMINATING: Record<string, number> = {
   "00110100": 63,
 };
 
-/** White make-up codes: bit patterns → run lengths 64–1728 (multiples of 64) */
+/** White make-up codes: bit patterns → run lengths 64–1728 (multiples of 64). */
 const WHITE_MAKEUP: Record<string, number> = {
   "11011": 64,
   "10010": 128,
@@ -121,7 +120,7 @@ const WHITE_MAKEUP: Record<string, number> = {
 
 // --- Black run codes ---
 
-/** Black terminating codes: bit patterns → run lengths 0–63 */
+/** Black terminating codes: bit patterns → run lengths 0–63. */
 const BLACK_TERMINATING: Record<string, number> = {
   "0000110111": 0,
   "010": 1,
@@ -189,7 +188,7 @@ const BLACK_TERMINATING: Record<string, number> = {
   "000001100111": 63,
 };
 
-/** Black make-up codes: bit patterns → run lengths 64–1728 (multiples of 64) */
+/** Black make-up codes: bit patterns → run lengths 64–1728 (multiples of 64). */
 const BLACK_MAKEUP: Record<string, number> = {
   "0000001111": 64,
   "000011001000": 128,
@@ -235,15 +234,25 @@ const EOL = "000000000001";
  * @returns Decoded pixel data (grayscale or RGB depending on palette).
  */
 export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData {
-  const { dataOffset } = header;
-  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
+  const { dataOffset, width, height } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
 
   const palette = extractPalette(bmp, header);
-  const channels: 1 | 3 = isPaletteGrayscale(palette) ? 1 : 3;
+  const channels = isPaletteGrayscale(palette) ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
   // Decompress Huffman data into a flat array of 0/1 palette indices
   const pixels = decompressHuffman(bmp, dataOffset, absWidth, absHeight);
+
+  // Flatten palette into typed arrays for fast indexed access
+  const palR = new Uint8Array(palette.length);
+  const palG = new Uint8Array(palette.length);
+  const palB = new Uint8Array(palette.length);
+  for (let i = 0; i < palette.length; i++) {
+    palR[i] = palette[i].red;
+    palG[i] = palette[i].green;
+    palB[i] = palette[i].blue;
+  }
 
   // Map palette indices to output pixels, handling row order
   for (let y = 0; y < absHeight; y++) {
@@ -251,8 +260,17 @@ export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData 
     let srcOffset = srcY * absWidth;
     let dstOffset = y * absWidth * channels;
 
-    for (let x = 0; x < absWidth; x++) {
-      dstOffset = writePaletteColor(output, dstOffset, palette[pixels[srcOffset++]], channels);
+    if (channels === 1) {
+      for (let x = 0; x < absWidth; x++) {
+        output[dstOffset++] = palR[pixels[srcOffset++]];
+      }
+    } else {
+      for (let x = 0; x < absWidth; x++) {
+        const idx = pixels[srcOffset++];
+        output[dstOffset++] = palR[idx]; // R
+        output[dstOffset++] = palG[idx]; // G
+        output[dstOffset++] = palB[idx]; // B
+      }
     }
   }
 

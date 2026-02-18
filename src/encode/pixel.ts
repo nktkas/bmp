@@ -7,8 +7,7 @@
  * pack indexed pixel data into 1/4/8-bit formats with row padding.
  */
 
-import type { RawImageData } from "../common.ts";
-import { calculateStride } from "../common.ts";
+import { calculateStride, type RawImageData } from "../common.ts";
 
 /**
  * Reads one RGB pixel from raw image data, regardless of the source format.
@@ -88,9 +87,9 @@ export function rawToBgr(raw: RawImageData, topDown: boolean): Uint8Array {
     if (channels === 1) {
       for (let x = 0; x < width; x++, srcOffset++, dstOffset += 3) {
         const g = data[srcOffset];
-        result[dstOffset] = g;
-        result[dstOffset + 1] = g;
-        result[dstOffset + 2] = g;
+        result[dstOffset] = g; // B
+        result[dstOffset + 1] = g; // G
+        result[dstOffset + 2] = g; // R
       }
     } else {
       for (let x = 0; x < width; x++, srcOffset += channels, dstOffset += 3) {
@@ -124,17 +123,17 @@ export function rawToBgra(raw: RawImageData, topDown: boolean): Uint8Array {
     if (channels === 1) {
       for (let x = 0; x < width; x++, srcOffset++, dstOffset += 4) {
         const g = data[srcOffset];
-        result[dstOffset] = g;
-        result[dstOffset + 1] = g;
-        result[dstOffset + 2] = g;
-        result[dstOffset + 3] = 255;
+        result[dstOffset] = g; // B
+        result[dstOffset + 1] = g; // G
+        result[dstOffset + 2] = g; // R
+        result[dstOffset + 3] = 255; // A
       }
     } else if (channels === 3) {
       for (let x = 0; x < width; x++, srcOffset += 3, dstOffset += 4) {
         result[dstOffset] = data[srcOffset + 2]; // B
         result[dstOffset + 1] = data[srcOffset + 1]; // G
         result[dstOffset + 2] = data[srcOffset]; // R
-        result[dstOffset + 3] = 255;
+        result[dstOffset + 3] = 255; // A
       }
     } else {
       for (let x = 0; x < width; x++, srcOffset += 4, dstOffset += 4) {

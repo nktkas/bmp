@@ -3,8 +3,7 @@
  * Encodes BMP images with BI_BITFIELDS or BI_ALPHABITFIELDS compression.
  */
 
-import type { BitfieldMasks, RawImageData } from "../common.ts";
-import { analyzeBitMask, calculateStride } from "../common.ts";
+import { analyzeBitMask, type BitfieldMasks, calculateStride, type RawImageData } from "../common.ts";
 
 /**
  * Encodes image data using custom bitfield masks.
@@ -40,17 +39,19 @@ export function encodeBitfields(
   const blueLut = createScaleLut(blueInfo.bits);
   const alphaLut = masks.alphaMask ? createScaleLut(alphaInfo.bits) : null;
 
+  const { data, channels } = raw;
+
   for (let y = 0; y < height; y++) {
     const dstRow = topDown ? y : height - 1 - y;
 
     for (let x = 0; x < width; x++) {
-      const srcOffset = (y * width + x) * raw.channels;
+      const srcOffset = (y * width + x) * channels;
       const dstOffset = dstRow * stride + x * (bitsPerPixel / 8);
 
-      const r = raw.data[srcOffset];
-      const g = raw.data[srcOffset + 1];
-      const b = raw.data[srcOffset + 2];
-      const a = raw.channels === 4 ? raw.data[srcOffset + 3] : 255;
+      const r = data[srcOffset];
+      const g = data[srcOffset + 1];
+      const b = data[srcOffset + 2];
+      const a = channels === 4 ? data[srcOffset + 3] : 255;
 
       // LUT lookup + shift into position
       let pixel = 0;

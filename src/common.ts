@@ -160,30 +160,3 @@ export function analyzeBitMask(mask: number): { shift: number; bits: number } {
 export function isPaletteGrayscale(palette: Color[]): boolean {
   return palette.every((c) => c.red === c.green && c.green === c.blue);
 }
-
-/**
- * Writes a palette color to the output buffer as either grayscale (1 byte)
- * or RGB (3 bytes), depending on the channel count.
- *
- * @param output - Destination buffer.
- * @param offset - Write position in the buffer.
- * @param color - Palette color to write.
- * @param channels - 1 for grayscale, 3 for RGB.
- * @returns The new offset after the written bytes.
- */
-export function writePaletteColor(
-  output: Uint8Array,
-  offset: number,
-  color: Color,
-  channels: 1 | 3,
-): number {
-  if (channels === 1) {
-    // For grayscale palettes, R = G = B, so any channel works
-    output[offset] = color.red;
-    return offset + 1;
-  }
-  output[offset] = color.red;
-  output[offset + 1] = color.green;
-  output[offset + 2] = color.blue;
-  return offset + 3;
-}

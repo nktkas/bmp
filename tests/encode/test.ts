@@ -6,10 +6,10 @@
 // deno-lint-ignore-file no-import-prefix
 import { assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
-import pixelmatch from "npm:pixelmatch@7";
 import { decode, encode, type EncodeOptions } from "../../src/mod.ts";
 import { readHeader } from "../../src/decode/header.ts";
 import { extractPalette } from "../../src/decode/palette.ts";
+import pixelmatch from "npm:pixelmatch@7";
 import { SUITE_DIR, toRgba } from "../_utils.ts";
 
 /** Maps DIB header size to HeaderType string. */
@@ -47,9 +47,7 @@ async function runTest(filename: string) {
     compression: originalHeader.compression as 0 | 1 | 2 | 3 | 6,
     headerType: mapHeaderType(originalHeader.headerSize),
     topDown: originalHeader.height < 0,
-    palette: originalHeader.bitsPerPixel <= 8
-      ? extractPalette(originalBmp, originalHeader)
-      : undefined,
+    palette: originalHeader.bitsPerPixel <= 8 ? extractPalette(originalBmp, originalHeader) : undefined,
     bitfields: extractBitfieldMasks(originalHeader),
   };
 
@@ -72,7 +70,7 @@ async function runTest(filename: string) {
   // Validate bitfield masks if present
   if (encodeOptions.bitfields) {
     const encodedMasks = extractBitfieldMasks(encodedHeader);
-    assertEquals(encodedMasks, encodeOptions.bitfields, "Bitfield masks mismatch");
+    assertEquals(encodedMasks, encodeOptions.bitfields, "BitfieldMasks mismatch");
   }
 
   // Validate palette if present

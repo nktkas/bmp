@@ -9,13 +9,7 @@
 
 import type { Color, RawImageData } from "../common.ts";
 import { convertToIndexed, generateGrayscalePalette, generatePalette } from "./quantize.ts";
-import {
-  grayscaleToIndices,
-  packIndexedPixels,
-  rawToBgr,
-  rawToBgra,
-  rawToRgb555,
-} from "./pixel.ts";
+import { grayscaleToIndices, packIndexedPixels, rawToBgr, rawToBgra, rawToRgb555 } from "./pixel.ts";
 
 /** Result of BI_RGB encoding: pixel data and optional palette. */
 export interface EncodedRgbData {
@@ -67,12 +61,8 @@ function encodeIndexed(
     indices = convertToIndexed(raw, finalPalette);
   } else {
     // Auto-generate palette
-    finalPalette = raw.channels === 1
-      ? generateGrayscalePalette(numColors)
-      : generatePalette(raw, numColors);
-    indices = raw.channels === 1
-      ? grayscaleToIndices(raw, numColors)
-      : convertToIndexed(raw, finalPalette);
+    finalPalette = raw.channels === 1 ? generateGrayscalePalette(numColors) : generatePalette(raw, numColors);
+    indices = raw.channels === 1 ? grayscaleToIndices(raw, numColors) : convertToIndexed(raw, finalPalette);
   }
 
   const pixelData = packIndexedPixels(indices, raw.width, raw.height, bitsPerPixel, topDown);

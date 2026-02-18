@@ -63,11 +63,7 @@ export interface HeaderParams {
  */
 export function writeHeader(params: HeaderParams): Uint8Array {
   const headerType = params.headerType || "BITMAPINFOHEADER";
-  const infoHeaderSize = headerType === "BITMAPV5HEADER"
-    ? 124
-    : headerType === "BITMAPV4HEADER"
-    ? 108
-    : 40;
+  const infoHeaderSize = headerType === "BITMAPV5HEADER" ? 124 : headerType === "BITMAPV4HEADER" ? 108 : 40;
 
   // Build DIB header
   const infoHeader = writeInfoHeader(params, headerType, infoHeaderSize);
@@ -78,14 +74,10 @@ export function writeHeader(params: HeaderParams): Uint8Array {
     (params.compression === CompressionTypes.BI_BITFIELDS ||
       params.compression === CompressionTypes.BI_ALPHABITFIELDS) &&
     params.bitfields;
-  const masksBuffer = needsSeparateMasks
-    ? writeBitfieldMasks(params.bitfields!)
-    : new Uint8Array(0);
+  const masksBuffer = needsSeparateMasks ? writeBitfieldMasks(params.bitfields!) : new Uint8Array(0);
 
   // Color table (palette)
-  const colorTableBuffer = params.colorTable
-    ? writeColorTable(params.colorTable)
-    : new Uint8Array(0);
+  const colorTableBuffer = params.colorTable ? writeColorTable(params.colorTable) : new Uint8Array(0);
 
   // File header needs to know the total offset to pixel data
   const pixelDataOffset = 14 + infoHeaderSize + masksBuffer.length + colorTableBuffer.length;
@@ -93,14 +85,14 @@ export function writeHeader(params: HeaderParams): Uint8Array {
 
   // Concatenate all parts
   const result = new Uint8Array(pixelDataOffset);
-  let offset = 0;
-  result.set(fileHeader, offset);
-  offset += fileHeader.length;
-  result.set(infoHeader, offset);
-  offset += infoHeader.length;
-  result.set(masksBuffer, offset);
-  offset += masksBuffer.length;
-  result.set(colorTableBuffer, offset);
+  let dstOffset = 0;
+  result.set(fileHeader, dstOffset);
+  dstOffset += fileHeader.length;
+  result.set(infoHeader, dstOffset);
+  dstOffset += infoHeader.length;
+  result.set(masksBuffer, dstOffset);
+  dstOffset += masksBuffer.length;
+  result.set(colorTableBuffer, dstOffset);
 
   return result;
 }
@@ -190,11 +182,11 @@ function writeColorTable(colors: Color[]): Uint8Array {
   const buffer = new Uint8Array(colors.length * 4);
 
   for (let i = 0; i < colors.length; i++) {
-    const offset = i * 4;
-    buffer[offset] = colors[i].blue;
-    buffer[offset + 1] = colors[i].green;
-    buffer[offset + 2] = colors[i].red;
-    // buffer[offset + 3] stays 0 (reserved byte)
+    const dstOffset = i * 4;
+    buffer[dstOffset] = colors[i].blue; // B
+    buffer[dstOffset + 1] = colors[i].green; // G
+    buffer[dstOffset + 2] = colors[i].red; // R
+    // buffer[dstOffset + 3] stays 0 (reserved byte)
   }
 
   return buffer;

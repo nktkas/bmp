@@ -104,12 +104,19 @@ class KdTree {
 
 /** A box of colors in RGB space, used by the Median Cut algorithm. */
 interface ColorBox {
-  colors: number[]; // Packed RGB values: (r << 16) | (g << 8) | b
+  /** Packed RGB values: (r << 16) | (g << 8) | b. */
+  colors: number[];
+  /** Minimum red value in this box. */
   rMin: number;
+  /** Maximum red value in this box. */
   rMax: number;
+  /** Minimum green value in this box. */
   gMin: number;
+  /** Maximum green value in this box. */
   gMax: number;
+  /** Minimum blue value in this box. */
   bMin: number;
+  /** Maximum blue value in this box. */
   bMax: number;
 }
 
@@ -270,13 +277,13 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
     const cache = new Map<number, number>();
 
     for (let i = 0; i < pixelCount; i++) {
-      const offset = i * channels;
+      const srcOffset = i * channels;
       let r: number, g: number, b: number;
-      if (channels === 1) r = g = b = data[offset];
+      if (channels === 1) r = g = b = data[srcOffset];
       else {
-        r = data[offset];
-        g = data[offset + 1];
-        b = data[offset + 2];
+        r = data[srcOffset];
+        g = data[srcOffset + 1];
+        b = data[srcOffset + 2];
       }
 
       const packed = (r << 16) | (g << 8) | b;
@@ -287,9 +294,8 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
       }
       indices[i] = index;
     }
-    // Linear search for small palettes
   } else {
-    // flat typed arrays for faster access
+    // Linear search for small palettes — flat typed arrays for faster access
     const palLen = palette.length;
     const palR = new Uint8Array(palLen);
     const palG = new Uint8Array(palLen);
@@ -301,13 +307,13 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
     }
 
     for (let i = 0; i < pixelCount; i++) {
-      const offset = i * channels;
+      const srcOffset = i * channels;
       let r: number, g: number, b: number;
-      if (channels === 1) r = g = b = data[offset];
+      if (channels === 1) r = g = b = data[srcOffset];
       else {
-        r = data[offset];
-        g = data[offset + 1];
-        b = data[offset + 2];
+        r = data[srcOffset];
+        g = data[srcOffset + 1];
+        b = data[srcOffset + 2];
       }
 
       let minDist = Infinity;

@@ -39,9 +39,9 @@ export function extractPalette(bmp: Uint8Array, header: BmpHeader): Color[] {
   for (let i = 0; i < colorCount; i++) {
     const offset = paletteOffset + i * bytesPerEntry;
     palette.push({
-      red: bmp[offset + 2],
-      green: bmp[offset + 1],
-      blue: bmp[offset],
+      red: bmp[offset + 2], // R
+      green: bmp[offset + 1], // G
+      blue: bmp[offset], // B
     });
   }
 

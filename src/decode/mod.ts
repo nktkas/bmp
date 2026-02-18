@@ -93,13 +93,13 @@ export interface CompressedImageData {
  */
 export function extractCompressedData(bmp: Uint8Array): CompressedImageData {
   const header = readHeader(bmp);
-  const { dataOffset, imageSize } = header;
+  const { dataOffset, imageSize, width, height, compression } = header;
 
   return {
-    width: Math.abs(header.width),
-    height: Math.abs(header.height),
-    compression: header.compression,
-    data: bmp.slice(dataOffset, dataOffset + imageSize),
+    width: Math.abs(width),
+    height: Math.abs(height),
+    compression,
+    data: bmp.subarray(dataOffset, dataOffset + imageSize),
   };
 }
 

@@ -20,13 +20,11 @@ Works with:
 Supported BMP formats:
 
 - **Header types**: BITMAPCOREHEADER, OS22XBITMAPHEADER, BITMAPINFOHEADER, BITMAPV2–V5
-- **Compression**: BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, BI_ALPHABITFIELDS, Modified Huffman,
-  RLE24
+- **Compression**: BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, BI_ALPHABITFIELDS, Modified Huffman, RLE24
 - **Bit depths**: 1, 2, 4, 8, 16, 24, 32, 64
 - **Row order**: top-down and bottom-up
 
-<sub>Full list of supported BMP formats
-[here](https://entropymine.com/jason/bmpsuite/bmpsuite/html/bmpsuite.html)</sub>
+<sub>Full list of supported BMP formats [here](https://entropymine.com/jason/bmpsuite/bmpsuite/html/bmpsuite.html)</sub>
 
 #### Basic usage
 
@@ -67,8 +65,8 @@ const raw = decode(file);
 
 #### BI_JPEG / BI_PNG compressed images
 
-BMP files can embed JPEG or PNG data as pixel payload. Use `extractCompressedData` to get the
-embedded data, then decode it with any JPEG/PNG library.
+BMP files can embed JPEG or PNG data as pixel payload. Use `extractCompressedData` to get the embedded data, then decode
+it with any JPEG/PNG library.
 
 <!-- deno-fmt-ignore -->
 ```ts
@@ -213,8 +211,7 @@ interface EncodeOptions {
 
 ## Benchmarks
 
-All benchmarks use the [BMP Suite](https://entropymine.com/jason/bmpsuite/) test images (127x64
-pixels).
+All benchmarks use the [BMP Suite](https://entropymine.com/jason/bmpsuite/) test images (127x64 pixels).
 
 ### Decode comparison
 
@@ -238,8 +235,7 @@ Microseconds per operation (lower is better). **Bold** = fastest in row, `—` =
 | BI_BITFIELDS 16   |  **31.5**   |                            34.8                            |                          34.0                          |                       —                        |                         —                          |                      96.2                      |
 | BI_BITFIELDS 32   |    32.0     |                            34.1                            |                        **31.9**                        |                       —                        |                        41.9                        |                     104.6                      |
 
-> `@cwasm/nsbmp` uses WebAssembly (compiled C). The other libraries, including `@nktkas/bmp`, are
-> pure JavaScript.
+> `@cwasm/nsbmp` uses WebAssembly (compiled C). The other libraries, including `@nktkas/bmp`, are pure JavaScript.
 
 ### Encode comparison
 

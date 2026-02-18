@@ -7,8 +7,7 @@
  * (16/24/32/64-bit) encode colors directly in the pixel data.
  */
 
-import type { BmpHeader, RawImageData } from "../common.ts";
-import { calculateStride, getImageLayout, isPaletteGrayscale } from "../common.ts";
+import { type BmpHeader, calculateStride, getImageLayout, isPaletteGrayscale, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /**
@@ -41,12 +40,12 @@ export function decodeRgb(bmp: Uint8Array, header: BmpHeader): RawImageData {
 
 /** Decodes indexed (palette-based) pixel data for all bit depths: 1, 2, 4, 8. */
 function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
-  const { dataOffset, bitsPerPixel } = header;
-  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
+  const { dataOffset, bitsPerPixel, width, height } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
   const palette = extractPalette(bmp, header);
 
-  const channels: 1 | 3 = isPaletteGrayscale(palette) ? 1 : 3;
+  const channels = isPaletteGrayscale(palette) ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
   // Flatten palette into typed arrays for fast indexed access
@@ -116,8 +115,8 @@ for (let i = 0; i < 32; i++) RGB555_TO_RGB888[i] = Math.round((i * 255) / 31);
 
 /** Decodes 16-bit BI_RGB pixels (RGB555 format, 5 bits per channel). */
 function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
-  const { dataOffset, bitsPerPixel } = header;
-  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
+  const { dataOffset, bitsPerPixel, width, height } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
   const output = new Uint8Array(absWidth * absHeight * 3);
 
@@ -128,9 +127,9 @@ function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
 
     for (let x = 0; x < absWidth; x++, srcOffset += 2) {
       const pixel = bmp[srcOffset] | (bmp[srcOffset + 1] << 8);
-      output[dstOffset++] = RGB555_TO_RGB888[(pixel >> 10) & 31];
-      output[dstOffset++] = RGB555_TO_RGB888[(pixel >> 5) & 31];
-      output[dstOffset++] = RGB555_TO_RGB888[pixel & 31];
+      output[dstOffset++] = RGB555_TO_RGB888[(pixel >> 10) & 31]; // R
+      output[dstOffset++] = RGB555_TO_RGB888[(pixel >> 5) & 31]; // G
+      output[dstOffset++] = RGB555_TO_RGB888[pixel & 31]; // B
     }
   }
 
@@ -139,8 +138,8 @@ function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
 
 /** Decodes 24-bit BI_RGB pixels (BGR → RGB). */
 function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
-  const { dataOffset, bitsPerPixel } = header;
-  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
+  const { dataOffset, bitsPerPixel, width, height } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
   const output = new Uint8Array(absWidth * absHeight * 3);
 
@@ -161,24 +160,24 @@ function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
 
 /** Decodes 32-bit BI_RGB pixels (BGRA → RGB or RGBA, auto-detecting alpha). */
 function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
-  const { dataOffset, bitsPerPixel } = header;
-  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
+  const { dataOffset, bitsPerPixel, width, height } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
 
   // Scan alpha bytes to decide whether to output RGB or RGBA
   let hasAlpha = false;
   for (let y = 0; y < absHeight && !hasAlpha; y++) {
     const srcY = isTopDown ? y : absHeight - 1 - y;
-    let offset = dataOffset + srcY * stride + 3;
-    for (let x = 0; x < absWidth; x++, offset += 4) {
-      if (bmp[offset] !== 0) {
+    let srcOffset = dataOffset + srcY * stride + 3;
+    for (let x = 0; x < absWidth; x++, srcOffset += 4) {
+      if (bmp[srcOffset] !== 0) {
         hasAlpha = true;
         break;
       }
     }
   }
 
-  const channels: 3 | 4 = hasAlpha ? 4 : 3;
+  const channels = hasAlpha ? 4 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
   for (let y = 0; y < absHeight; y++) {
@@ -199,8 +198,8 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
 
 /** Decodes 64-bit BI_RGB pixels (s2.13 fixed-point BGRA → sRGB RGBA). */
 function decode64Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
-  const { dataOffset, bitsPerPixel } = header;
-  const { absWidth, absHeight, isTopDown } = getImageLayout(header.width, header.height);
+  const { dataOffset, bitsPerPixel, width, height } = header;
+  const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
   const output = new Uint8Array(absWidth * absHeight * 4);
 
