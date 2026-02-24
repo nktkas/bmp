@@ -1,13 +1,14 @@
+// deno-lint-ignore-file no-import-prefix
+
 /**
  * Compares decoded BMPs against reference PNGs from the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/).
  */
 
-// deno-lint-ignore-file no-import-prefix
 import { assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
-import { decode, extractCompressedData, type RawImageData } from "../../src/mod.ts";
-import sharp from "npm:sharp@^0.34.5";
 import pixelmatch from "npm:pixelmatch@7";
+import sharp from "npm:sharp@^0.34.5";
+import { decode, extractCompressedData, type RawImageData } from "../../src/mod.ts";
 import { SUITE_DIR, toRgba } from "../_utils.ts";
 
 /** Checks if a file exists. */

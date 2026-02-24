@@ -1,15 +1,16 @@
+// deno-lint-ignore-file no-import-prefix
+
 /**
  * Benchmarks BMP encoding performance against third-party libraries using files from the BMP Suite.
  */
 
-// deno-lint-ignore-file no-import-prefix
-import { join } from "jsr:@std/path@1";
-import * as nktkas_bmp from "../../src/mod.ts";
-import { bench, group, run, summary } from "npm:mitata@1";
-import * as fast_bmp from "npm:fast-bmp@^4.0.1";
-import bmpjs from "npm:bmp-js@^0.1.0";
-import { SUITE_DIR } from "../_utils.ts";
 import { Buffer } from "node:buffer";
+import { join } from "jsr:@std/path@1";
+import bmpjs from "npm:bmp-js@^0.1.0";
+import * as fast_bmp from "npm:fast-bmp@^4.0.1";
+import { bench, group, run, summary } from "npm:mitata@1";
+import * as nktkas_bmp from "../../src/mod.ts";
+import { SUITE_DIR } from "../_utils.ts";
 
 // ============================================================================
 // Configuration

@@ -1,5 +1,4 @@
 /**
- * @module
  * BMP image encoder — converts raw pixel data to BMP binary format.
  *
  * Supports BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, and BI_ALPHABITFIELDS
@@ -18,38 +17,42 @@
  * const bmp = encode(raw);
  * await Deno.writeFile("output.bmp", bmp);
  * ```
+ *
+ * @module
  */
 
 import type { BitfieldMasks, Color, RawImageData } from "../common.ts";
+import { encodeBitfields } from "./bitfields.ts";
 import { CompressionTypes, type HeaderType, writeHeader } from "./header.ts";
 import { encodeRgb } from "./rgb.ts";
-import { encodeBitfields } from "./bitfields.ts";
 import { encodeRle4, encodeRle8 } from "./rle.ts";
+
+export type { BitfieldMasks, Color, RawImageData };
 
 /** Options for encoding a BMP image. */
 export interface EncodeOptions {
   /**
    * Bits per pixel (1, 4, 8, 16, 24, or 32).
-   * Default: auto-detected from channels (1→8, 3→24, 4→32).
+   * Default: auto-detected from channels (`1`→`8`, `3`→`24`, `4`→`32`).
    */
   bitsPerPixel?: 1 | 4 | 8 | 16 | 24 | 32;
 
   /**
    * Compression method (0=BI_RGB, 1=BI_RLE8, 2=BI_RLE4,
    * 3=BI_BITFIELDS, 6=BI_ALPHABITFIELDS).
-   * Default: 0 (BI_RGB).
+   * Default: `0` (BI_RGB).
    */
   compression?: 0 | 1 | 2 | 3 | 6;
 
   /**
    * Header format: "BITMAPINFOHEADER" (40 bytes),
    * "BITMAPV4HEADER" (108 bytes), or "BITMAPV5HEADER" (124 bytes).
-   * Default: "BITMAPINFOHEADER".
+   * Default: `"BITMAPINFOHEADER"`.
    */
   headerType?: HeaderType;
 
-  /** If true, rows are stored top-down instead of the default bottom-up. */
-  topDown?: boolean;
+  /** If true, rows are stored top-down instead of the default bottom-up. Default: `false`. */
+  isTopDown?: boolean;
 
   /** Custom color palette for indexed formats (1/4/8-bit). Auto-generated if omitted. */
   palette?: Color[];
@@ -62,17 +65,17 @@ export interface EncodeOptions {
 }
 
 /**
- * Encodes raw pixel data into a complete BMP file.
+ * Encode raw pixel data into a complete BMP file.
  *
- * @param raw - Source pixel data (grayscale, RGB, or RGBA).
- * @param options - Encoding options.
- * @returns Complete BMP file as a byte array.
+ * @param raw Source pixel data (grayscale, RGB, or RGBA).
+ * @param options Encoding options.
+ * @return Complete BMP file as a byte array.
  */
 export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Array {
-  const bitsPerPixel = options.bitsPerPixel || getDefaultBitsPerPixel(raw.channels);
+  const bitsPerPixel = options.bitsPerPixel ?? getDefaultBitsPerPixel(raw.channels);
   const compression = options.compression ?? CompressionTypes.BI_RGB;
-  const headerType = options.headerType || "BITMAPINFOHEADER";
-  const topDown = options.topDown ?? false;
+  const headerType = options.headerType ?? "BITMAPINFOHEADER";
+  const isTopDown = options.isTopDown ?? false;
 
   validateOptions(raw, bitsPerPixel, compression);
 
@@ -83,7 +86,7 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
 
   switch (compression) {
     case CompressionTypes.BI_RGB: {
-      const result = encodeRgb(raw, bitsPerPixel, topDown, options.palette);
+      const result = encodeRgb(raw, bitsPerPixel, isTopDown, options.palette);
       pixelData = result.pixelData;
       palette = result.palette;
       break;
@@ -105,15 +108,8 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
 
     case CompressionTypes.BI_BITFIELDS:
     case CompressionTypes.BI_ALPHABITFIELDS: {
-      bitfields = options.bitfields || getDefaultBitfieldMasks(bitsPerPixel as 16 | 32);
-      pixelData = encodeBitfields(
-        raw,
-        raw.width,
-        raw.height,
-        bitsPerPixel as 16 | 32,
-        bitfields,
-        topDown,
-      );
+      bitfields = options.bitfields ?? getDefaultBitfieldMasks(bitsPerPixel as 16 | 32);
+      pixelData = encodeBitfields(raw, bitsPerPixel as 16 | 32, bitfields, isTopDown);
       break;
     }
 
@@ -130,7 +126,7 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
     imageDataSize: pixelData.length,
     colorTable: palette,
     headerType,
-    topDown,
+    isTopDown,
     bitfields,
   });
 
@@ -141,12 +137,24 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
   return result;
 }
 
-/** Auto-detect bit depth from channel count. */
+/**
+ * Auto-detect bit depth from channel count.
+ *
+ * @param channels Number of color channels.
+ * @return Corresponding bit depth.
+ */
 function getDefaultBitsPerPixel(channels: 1 | 3 | 4): 8 | 24 | 32 {
-  return channels === 1 ? 8 : channels === 3 ? 24 : 32;
+  if (channels === 1) return 8;
+  if (channels === 3) return 24;
+  return 32;
 }
 
-/** Default bitfield masks: RGB565 for 16-bit, BGRA8888 for 32-bit. */
+/**
+ * Return default bitfield masks: RGB565 for 16-bit, BGRA8888 for 32-bit.
+ *
+ * @param bitsPerPixel Target bit depth.
+ * @return Default bitfield masks.
+ */
 function getDefaultBitfieldMasks(bitsPerPixel: 16 | 32): BitfieldMasks {
   if (bitsPerPixel === 16) {
     return { redMask: 0x0000F800, greenMask: 0x000007E0, blueMask: 0x0000001F };
@@ -159,7 +167,13 @@ function getDefaultBitfieldMasks(bitsPerPixel: 16 | 32): BitfieldMasks {
   };
 }
 
-/** Validates that compression and bit depth are compatible. */
+/**
+ * Validate that compression and bit depth are compatible.
+ *
+ * @param raw Source pixel data.
+ * @param bitsPerPixel Target bit depth.
+ * @param compression Compression type.
+ */
 function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: number): void {
   if (raw.width <= 0 || raw.height <= 0) {
     throw new Error("Invalid image dimensions");
@@ -177,5 +191,3 @@ function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: n
     throw new Error("BI_ALPHABITFIELDS requires 32-bit format");
   }
 }
-
-export type { BitfieldMasks, Color, RawImageData };

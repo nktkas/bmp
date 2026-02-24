@@ -1,15 +1,16 @@
+// deno-lint-ignore-file no-import-prefix
+
 /**
  * Check that encode() creates BMP files with correct headers and pixel data
  * by comparing against reference BMP files from the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/).
  */
 
-// deno-lint-ignore-file no-import-prefix
 import { assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
+import pixelmatch from "npm:pixelmatch@7";
 import { type Color, decode, encode, type EncodeOptions } from "../../src/mod.ts";
 import { readHeader } from "../../src/decode/header.ts";
 import { extractPalette, type FlatPalette } from "../../src/decode/palette.ts";
-import pixelmatch from "npm:pixelmatch@7";
 import { SUITE_DIR, toRgba } from "../_utils.ts";
 
 /** Converts a FlatPalette back to Color[] for encode compatibility. */
@@ -55,7 +56,7 @@ async function runTest(filename: string) {
     bitsPerPixel: originalHeader.bitsPerPixel as 1 | 4 | 8 | 16 | 24 | 32,
     compression: originalHeader.compression as 0 | 1 | 2 | 3 | 6,
     headerType: mapHeaderType(originalHeader.headerSize),
-    topDown: originalHeader.height < 0,
+    isTopDown: originalHeader.height < 0,
     palette: originalHeader.bitsPerPixel <= 8 ? toColorArray(extractPalette(originalBmp, originalHeader)) : undefined,
     bitfields: extractBitfieldMasks(originalHeader),
   };

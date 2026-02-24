@@ -1,29 +1,27 @@
 /**
- * @module
  * Encodes BMP images with BI_BITFIELDS or BI_ALPHABITFIELDS compression.
+ * @module
  */
 
 import { analyzeBitMask, type BitfieldMasks, calculateStride, type RawImageData } from "../common.ts";
 
 /**
- * Encodes image data using custom bitfield masks.
+ * Encode image data using custom bitfield masks.
  *
- * @param raw - Source pixel data (RGB or RGBA).
- * @param width - Image width in pixels.
- * @param height - Image height in pixels.
- * @param bitsPerPixel - 16 or 32.
- * @param masks - Custom bit masks for each channel.
- * @param topDown - If true, rows are stored top-down.
- * @returns Encoded pixel data.
+ * @param raw Source pixel data (RGB or RGBA).
+ * @param bitsPerPixel 16 or 32.
+ * @param masks Custom bit masks for each channel.
+ * @param isTopDown If true, rows are stored top-down. Default: `false`.
+ * @return Encoded pixel data.
  */
 export function encodeBitfields(
   raw: RawImageData,
-  width: number,
-  height: number,
   bitsPerPixel: 16 | 32,
   masks: BitfieldMasks,
-  topDown: boolean = false,
+  isTopDown: boolean = false,
 ): Uint8Array {
+  const { width, height } = raw;
+
   const redInfo = analyzeBitMask(masks.redMask);
   const greenInfo = analyzeBitMask(masks.greenMask);
   const blueInfo = analyzeBitMask(masks.blueMask);
@@ -42,7 +40,7 @@ export function encodeBitfields(
   const { data, channels } = raw;
 
   for (let y = 0; y < height; y++) {
-    const dstRow = topDown ? y : height - 1 - y;
+    const dstRow = isTopDown ? y : height - 1 - y;
 
     for (let x = 0; x < width; x++) {
       const srcOffset = (y * width + x) * channels;
@@ -73,7 +71,12 @@ export function encodeBitfields(
   return result;
 }
 
-/** Creates a LUT that scales 8-bit values (0–255) to a target bit depth. */
+/**
+ * Create a LUT that scales 8-bit values (0–255) to a target bit depth.
+ *
+ * @param bits Target channel bit depth.
+ * @return Lookup table mapping 8-bit values to scaled values.
+ */
 function createScaleLut(bits: number): Uint8Array {
   const lut = new Uint8Array(256);
   if (bits === 0) return lut;

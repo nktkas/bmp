@@ -1,9 +1,10 @@
 /**
- * @module
  * Extracts the color palette (color table) from indexed BMP images.
  *
  * Indexed BMP images (1, 2, 4, 8 bits per pixel) store pixel values as
  * indices into a palette of colors located between the DIB header and pixel data.
+ *
+ * @module
  */
 
 import type { BmpHeader } from "../common.ts";
@@ -21,11 +22,11 @@ export interface FlatPalette {
 }
 
 /**
- * Reads the color palette from an indexed BMP image into flat typed arrays.
+ * Read the color palette from an indexed BMP image into flat typed arrays.
  *
- * @param bmp - Complete BMP file contents.
- * @param header - Parsed BMP header.
- * @returns Flat palette arrays sized to the maximum for the bit depth,
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Flat palette arrays sized to the maximum for the bit depth,
  *          with missing entries zeroed (black).
  */
 export function extractPalette(bmp: Uint8Array, header: BmpHeader): FlatPalette {

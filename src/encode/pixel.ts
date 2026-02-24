@@ -1,21 +1,34 @@
 /**
- * @module
  * Pixel format conversion utilities for BMP encoding.
  *
  * BMP stores pixels in BGR/BGRA order (blue first), while our internal
  * format uses RGB/RGBA. These functions handle the conversion and also
  * pack indexed pixel data into 1/4/8-bit formats with row padding.
+ *
+ * @module
  */
 
 import { calculateStride, type RawImageData } from "../common.ts";
 
+/** Layout options for packing indexed pixels. */
+interface PackIndexedOptions {
+  /** Image width in pixels. */
+  width: number;
+  /** Image height in pixels. */
+  height: number;
+  /** Bits per pixel: 1, 4, or 8. */
+  bitsPerPixel: 1 | 4 | 8;
+  /** If true, rows are stored top-down. */
+  isTopDown: boolean;
+}
+
 /**
- * Reads one RGB pixel from raw image data, regardless of the source format.
+ * Read one RGB pixel from raw image data, regardless of the source format.
  *
- * @param data - Pixel data buffer.
- * @param offset - Byte offset to the pixel.
- * @param channels - Number of channels (1, 3, or 4).
- * @returns RGB tuple [r, g, b]. Grayscale is expanded; alpha is ignored.
+ * @param data Pixel data buffer.
+ * @param offset Byte offset to the pixel.
+ * @param channels Number of channels (1, 3, or 4).
+ * @return RGB tuple [r, g, b]. Grayscale is expanded; alpha is ignored.
  */
 export function readPixelRgb(
   data: Uint8Array,
@@ -30,20 +43,20 @@ export function readPixelRgb(
 }
 
 /**
- * Converts raw pixel data to RGB555 format (16-bit, 5 bits per channel).
+ * Convert raw pixel data to RGB555 format (16-bit, 5 bits per channel).
  *
- * @param raw - Source pixel data.
- * @param topDown - If true, rows are stored top-down.
- * @returns Encoded pixel data with rows padded to 4-byte boundaries.
+ * @param raw Source pixel data.
+ * @param isTopDown If true, rows are stored top-down.
+ * @return Encoded pixel data with rows padded to 4-byte boundaries.
  */
-export function rawToRgb555(raw: RawImageData, topDown: boolean): Uint8Array {
+export function rawToRgb555(raw: RawImageData, isTopDown: boolean): Uint8Array {
   const { width, height, channels, data } = raw;
   const stride = calculateStride(width, 16);
   const result = new Uint8Array(stride * height);
   const view = new DataView(result.buffer);
 
   for (let y = 0; y < height; y++) {
-    const dstRow = topDown ? y : height - 1 - y;
+    const dstRow = isTopDown ? y : height - 1 - y;
     let srcOffset = y * width * channels;
     let dstOffset = dstRow * stride;
 
@@ -68,19 +81,19 @@ export function rawToRgb555(raw: RawImageData, topDown: boolean): Uint8Array {
 }
 
 /**
- * Converts raw pixel data to BGR format (24-bit BMP).
+ * Convert raw pixel data to BGR format (24-bit BMP).
  *
- * @param raw - Source pixel data.
- * @param topDown - If true, rows are stored top-down.
- * @returns Encoded pixel data with rows padded to 4-byte boundaries.
+ * @param raw Source pixel data.
+ * @param isTopDown If true, rows are stored top-down.
+ * @return Encoded pixel data with rows padded to 4-byte boundaries.
  */
-export function rawToBgr(raw: RawImageData, topDown: boolean): Uint8Array {
+export function rawToBgr(raw: RawImageData, isTopDown: boolean): Uint8Array {
   const { width, height, channels, data } = raw;
   const stride = calculateStride(width, 24);
   const result = new Uint8Array(stride * height);
 
   for (let y = 0; y < height; y++) {
-    const dstRow = topDown ? y : height - 1 - y;
+    const dstRow = isTopDown ? y : height - 1 - y;
     let srcOffset = y * width * channels;
     let dstOffset = dstRow * stride;
 
@@ -104,19 +117,19 @@ export function rawToBgr(raw: RawImageData, topDown: boolean): Uint8Array {
 }
 
 /**
- * Converts raw pixel data to BGRA format (32-bit BMP).
+ * Convert raw pixel data to BGRA format (32-bit BMP).
  *
- * @param raw - Source pixel data.
- * @param topDown - If true, rows are stored top-down.
- * @returns Encoded pixel data with rows padded to 4-byte boundaries.
+ * @param raw Source pixel data.
+ * @param isTopDown If true, rows are stored top-down.
+ * @return Encoded pixel data with rows padded to 4-byte boundaries.
  */
-export function rawToBgra(raw: RawImageData, topDown: boolean): Uint8Array {
+export function rawToBgra(raw: RawImageData, isTopDown: boolean): Uint8Array {
   const { width, height, channels, data } = raw;
   const stride = calculateStride(width, 32);
   const result = new Uint8Array(stride * height);
 
   for (let y = 0; y < height; y++) {
-    const dstRow = topDown ? y : height - 1 - y;
+    const dstRow = isTopDown ? y : height - 1 - y;
     let srcOffset = y * width * channels;
     let dstOffset = dstRow * stride;
 
@@ -149,16 +162,17 @@ export function rawToBgra(raw: RawImageData, topDown: boolean): Uint8Array {
 }
 
 /**
- * Converts grayscale pixel values to palette indices.
+ * Convert grayscale pixel values to palette indices.
  *
- * @param raw - Source grayscale pixel data (channels must be 1).
- * @param numColors - Target palette size (2, 16, or 256).
- * @returns Array of palette indices.
+ * @param raw Source grayscale pixel data (channels must be 1).
+ * @param numColors Target palette size (2, 16, or 256).
+ * @return Array of palette indices.
+ *
  * @throws {Error} If the input is not grayscale.
  */
 export function grayscaleToIndices(raw: RawImageData, numColors: 2 | 16 | 256): Uint8Array {
   if (raw.channels !== 1) {
-    throw new Error("grayscaleToIndices expects grayscale data (channels=1)");
+    throw new Error("Expected grayscale data (channels=1)");
   }
 
   // For 256 colors, grayscale values are already palette indices
@@ -175,27 +189,20 @@ export function grayscaleToIndices(raw: RawImageData, numColors: 2 | 16 | 256): 
 }
 
 /**
- * Packs palette index data into 1-bit, 4-bit, or 8-bit format with row padding.
+ * Pack palette index data into 1-bit, 4-bit, or 8-bit format with row padding.
  *
- * @param indices - Array of palette indices.
- * @param width - Image width in pixels.
- * @param height - Image height in pixels.
- * @param bitsPerPixel - 1, 4, or 8.
- * @param topDown - If true, rows are stored top-down.
- * @returns Packed pixel data with rows padded to 4-byte boundaries.
+ * @param indices Array of palette indices.
+ * @param options Layout options (dimensions, bit depth, row order).
+ * @return Packed pixel data with rows padded to 4-byte boundaries.
  */
-export function packIndexedPixels(
-  indices: Uint8Array,
-  width: number,
-  height: number,
-  bitsPerPixel: 1 | 4 | 8,
-  topDown: boolean,
-): Uint8Array {
+export function packIndexedPixels(indices: Uint8Array, options: PackIndexedOptions): Uint8Array {
+  const { width, height, bitsPerPixel, isTopDown } = options;
+
   const stride = calculateStride(width, bitsPerPixel);
   const result = new Uint8Array(stride * height);
 
   for (let y = 0; y < height; y++) {
-    const dstRow = topDown ? y : height - 1 - y;
+    const dstRow = isTopDown ? y : height - 1 - y;
     const srcRowStart = y * width;
     const dstRowStart = dstRow * stride;
 

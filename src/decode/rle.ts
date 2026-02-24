@@ -1,22 +1,23 @@
 /**
- * @module
  * Decodes BMP images with RLE (Run-Length Encoding) compression.
  *
  * BMP supports three RLE variants:
  * - RLE8 (compression = 1): each run is one palette index repeated N times
  * - RLE4 (compression = 2): each run alternates two palette indices (nibbles)
  * - RLE24 (compression = 4 with 24bpp): each run is a BGR triplet repeated N times
+ *
+ * @module
  */
 
 import { type BmpHeader, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /**
- * Decodes an RLE-compressed BMP image to raw pixel data.
+ * Decode an RLE-compressed BMP image to raw pixel data.
  *
- * @param bmp - Complete BMP file contents.
- * @param header - Parsed BMP header.
- * @returns Decoded pixel data.
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
  */
 export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { compression, bitsPerPixel } = header;
@@ -25,7 +26,13 @@ export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return decodeRle4(bmp, header);
 }
 
-/** Decodes RLE8: one byte per palette index. */
+/**
+ * Decode RLE8: one byte per palette index.
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
@@ -120,7 +127,13 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return { width: absWidth, height: absHeight, channels, data: output };
 }
 
-/** Decodes RLE4: two nibbles (palette indices) per byte, alternating in runs. */
+/**
+ * Decode RLE4: two nibbles (palette indices) per byte, alternating in runs.
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decodeRle4(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
@@ -244,7 +257,13 @@ function decodeRle4(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return { width: absWidth, height: absHeight, channels, data: output };
 }
 
-/** Decodes RLE24: no palette, direct BGR triplets per run. */
+/**
+ * Decode RLE24: no palette, direct BGR triplets per run.
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decodeRle24(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);

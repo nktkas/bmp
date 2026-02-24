@@ -1,21 +1,27 @@
 /**
- * @module
  * Decodes BI_RGB (uncompressed) BMP images across all bit depths.
  *
  * BI_RGB is the most common BMP compression type (compression = 0).
  * Indexed formats (1/2/4/8-bit) use a color palette; direct formats
  * (16/24/32/64-bit) encode colors directly in the pixel data.
+ *
+ * @module
  */
 
 import { type BmpHeader, calculateStride, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
+/** Lookup table for converting 5-bit values (0–31) to 8-bit (0–255). */
+const RGB555_TO_RGB888 = new Uint8Array(32);
+for (let i = 0; i < 32; i++) RGB555_TO_RGB888[i] = Math.round((i * 255) / 31);
+
 /**
- * Decodes a BI_RGB BMP image to raw pixel data.
+ * Decode a BI_RGB BMP image to raw pixel data.
  *
- * @param bmp - Complete BMP file contents.
- * @param header - Parsed BMP header.
- * @returns Decoded pixel data.
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ *
  * @throws {Error} If the bit depth is unsupported.
  */
 export function decodeRgb(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -38,7 +44,13 @@ export function decodeRgb(bmp: Uint8Array, header: BmpHeader): RawImageData {
   }
 }
 
-/** Decodes indexed (palette-based) pixel data for all bit depths: 1, 2, 4, 8. */
+/**
+ * Decode indexed (palette-based) pixel data for all bit depths: 1, 2, 4, 8.
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
@@ -209,11 +221,13 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return { width: absWidth, height: absHeight, channels, data: output };
 }
 
-/** Lookup table for converting 5-bit values (0–31) to 8-bit (0–255). */
-const RGB555_TO_RGB888 = new Uint8Array(32);
-for (let i = 0; i < 32; i++) RGB555_TO_RGB888[i] = Math.round((i * 255) / 31);
-
-/** Decodes 16-bit BI_RGB pixels (RGB555 format, 5 bits per channel). */
+/**
+ * Decode 16-bit BI_RGB pixels (RGB555 format, 5 bits per channel).
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
@@ -236,7 +250,13 @@ function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return { width: absWidth, height: absHeight, channels: 3, data: output };
 }
 
-/** Decodes 24-bit BI_RGB pixels (BGR → RGB). */
+/**
+ * Decode 24-bit BI_RGB pixels (BGR → RGB).
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
@@ -262,13 +282,20 @@ function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return { width: absWidth, height: absHeight, channels: 3, data: output };
 }
 
-/** Decodes 32-bit BI_RGB pixels (BGRA → RGB or RGBA, auto-detecting alpha). */
+/**
+ * Decode 32-bit BI_RGB pixels (BGRA → RGB or RGBA, auto-detecting alpha).
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
 
-  // Linear alpha scan — 32bpp has no stride padding, so alpha bytes are at a fixed stride of 4 regardless of row order
+  // Linear alpha scan — 32bpp has no stride padding,
+  // so alpha bytes are at a fixed stride of 4 regardless of row order
   let hasAlpha = false;
   const pixelEnd = dataOffset + absWidth * absHeight * 4;
   for (let offset = dataOffset + 3; offset < pixelEnd; offset += 4) {
@@ -317,7 +344,13 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   }
 }
 
-/** Decodes 64-bit BI_RGB pixels (s2.13 fixed-point BGRA → sRGB RGBA). */
+/**
+ * Decode 64-bit BI_RGB pixels (s2.13 fixed-point BGRA → sRGB RGBA).
+ *
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header.
+ * @return Decoded pixel data.
+ */
 function decode64Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
@@ -353,7 +386,12 @@ function decode64Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   return { width: absWidth, height: absHeight, channels: 4, data: output };
 }
 
-/** Converts a linear-light color component to sRGB gamma-corrected value. */
+/**
+ * Convert a linear-light color component to sRGB gamma-corrected value.
+ *
+ * @param c Linear-light color component in [0, 1].
+ * @return sRGB gamma-corrected value in [0, 1].
+ */
 function linearToSrgb(c: number): number {
   return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
 }

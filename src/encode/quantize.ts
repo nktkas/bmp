@@ -1,25 +1,35 @@
 /**
- * @module
  * Color quantization for reducing images to a limited palette.
  *
  * Uses the Median Cut algorithm to find the best N colors for an image,
- * and a K-d tree for fast nearest-neighbor lookup when mapping pixels
- * to palette indices.
+ * and a K-d tree for fast nearest-neighbor lookup when mapping pixels to palette indices.
+ *
+ * @module
  */
 
 import type { Color, RawImageData } from "../common.ts";
 
-// ============================================================================
+// ============================================================
 // K-d Tree for fast nearest-color search
-// ============================================================================
+// ============================================================
 
 /** Node in a K-d tree partitioning RGB color space. */
 class KdNode {
+  /** RGB color coordinates. */
   color: [number, number, number];
+  /** Palette index this node represents. */
   index: number;
+  /** Left child (values below the splitting plane). */
   left: KdNode | null = null;
+  /** Right child (values above the splitting plane). */
   right: KdNode | null = null;
 
+  /**
+   * Create a new K-d tree node.
+   *
+   * @param color RGB color tuple.
+   * @param index Palette index.
+   */
   constructor(color: [number, number, number], index: number) {
     this.color = color;
     this.index = index;
@@ -28,8 +38,14 @@ class KdNode {
 
 /** K-d tree for efficient nearest-color search in RGB space. */
 class KdTree {
-  private root: KdNode | null = null;
+  /** Root node of the tree (null if the palette is empty). */
+  protected root: KdNode | null = null;
 
+  /**
+   * Build a K-d tree from a color palette.
+   *
+   * @param palette Array of palette colors.
+   */
   constructor(palette: Color[]) {
     const points: { color: [number, number, number]; index: number }[] = [];
     for (let i = 0; i < palette.length; i++) {
@@ -41,7 +57,14 @@ class KdTree {
     this.root = this.buildTree(points, 0);
   }
 
-  private buildTree(
+  /**
+   * Recursively build the K-d tree by splitting along alternating color axes.
+   *
+   * @param points Array of color points to partition.
+   * @param depth Current recursion depth (determines the splitting axis).
+   * @return Root node of the subtree, or null if empty.
+   */
+  protected buildTree(
     points: { color: [number, number, number]; index: number }[],
     depth: number,
   ): KdNode | null {
@@ -59,7 +82,12 @@ class KdTree {
     return node;
   }
 
-  /** Finds the palette index of the color closest to `target` in RGB space. */
+  /**
+   * Find the palette index of the color closest to `target` in RGB space.
+   *
+   * @param target RGB color tuple to match.
+   * @return Palette index of the nearest color.
+   */
   findNearest(target: [number, number, number]): number {
     let bestNode: KdNode | null = null;
     let bestDistance = Infinity;
@@ -94,13 +122,14 @@ class KdTree {
     };
 
     search(this.root, 0);
+
     return bestNode!.index;
   }
 }
 
-// ============================================================================
+// ============================================================
 // Median Cut algorithm
-// ============================================================================
+// ============================================================
 
 /** A box of colors in RGB space, used by the Median Cut algorithm. */
 interface ColorBox {
@@ -120,7 +149,12 @@ interface ColorBox {
   bMax: number;
 }
 
-/** Creates a box from a set of packed RGB colors, computing the bounding range. */
+/**
+ * Create a box from a set of packed RGB colors, computing the bounding range.
+ *
+ * @param colors Array of packed RGB values.
+ * @return Color box with computed min/max bounds.
+ */
 function createColorBox(colors: number[]): ColorBox {
   let rMin = 255, rMax = 0;
   let gMin = 255, gMax = 0;
@@ -141,7 +175,12 @@ function createColorBox(colors: number[]): ColorBox {
   return { colors, rMin, rMax, gMin, gMax, bMin, bMax };
 }
 
-/** Splits a box along its longest color axis at the median. */
+/**
+ * Split a box along its longest color axis at the median.
+ *
+ * @param box Color box to split.
+ * @return Two new color boxes.
+ */
 function splitColorBox(box: ColorBox): [ColorBox, ColorBox] {
   const rRange = box.rMax - box.rMin;
   const gRange = box.gMax - box.gMin;
@@ -163,7 +202,12 @@ function splitColorBox(box: ColorBox): [ColorBox, ColorBox] {
   ];
 }
 
-/** Computes the average color of all colors in a box. */
+/**
+ * Compute the average color of all colors in a box.
+ *
+ * @param box Color box to average.
+ * @return Average color.
+ */
 function getAverageColor(box: ColorBox): Color {
   let rSum = 0, gSum = 0, bSum = 0;
   for (const packed of box.colors) {
@@ -179,15 +223,15 @@ function getAverageColor(box: ColorBox): Color {
   };
 }
 
-// ============================================================================
+// ============================================================
 // Public API
-// ============================================================================
+// ============================================================
 
 /**
- * Generates an evenly-spaced grayscale palette.
+ * Generate an evenly-spaced grayscale palette.
  *
- * @param numColors - Number of colors (e.g. 2, 16, or 256).
- * @returns Array of grayscale colors.
+ * @param numColors Number of colors (e.g. 2, 16, or 256).
+ * @return Array of grayscale colors.
  */
 export function generateGrayscalePalette(numColors: number): Color[] {
   const palette: Color[] = [];
@@ -202,11 +246,11 @@ export function generateGrayscalePalette(numColors: number): Color[] {
 }
 
 /**
- * Generates an optimal color palette using the Median Cut algorithm.
+ * Generate an optimal color palette using the Median Cut algorithm.
  *
- * @param raw - Source image (RGB or RGBA).
- * @param numColors - Target palette size (e.g. 2, 16, 256).
- * @returns Array of representative colors.
+ * @param raw Source image (RGB or RGBA).
+ * @param numColors Target palette size (e.g. 2, 16, 256).
+ * @return Array of representative colors.
  */
 export function generatePalette(raw: RawImageData, numColors: number): Color[] {
   // Extract unique colors as packed integers
@@ -259,11 +303,11 @@ export function generatePalette(raw: RawImageData, numColors: number): Color[] {
 }
 
 /**
- * Maps each pixel in the image to the nearest palette color index.
+ * Map each pixel in the image to the nearest palette color index.
  *
- * @param raw - Source pixel data.
- * @param palette - Target color palette.
- * @returns Array of palette indices, one per pixel.
+ * @param raw Source pixel data.
+ * @param palette Target color palette.
+ * @return Array of palette indices, one per pixel.
  */
 export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Array {
   const { data, channels, width, height } = raw;
@@ -271,7 +315,7 @@ export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Arra
   const pixelCount = width * height;
   const indices = new Uint8Array(pixelCount);
 
-  // K-d tree + cache for large palettes
+  // K-d tree + cache for large palettes (linear search is faster below this threshold)
   if (palette.length >= 64) {
     const tree = new KdTree(palette);
     const cache = new Map<number, number>();

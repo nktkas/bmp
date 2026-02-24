@@ -192,7 +192,7 @@ interface EncodeOptions {
    *
    * Default: false
    */
-  topDown?: boolean;
+  isTopDown?: boolean;
 
   /**
    * Color palette for indexed formats (1, 4, 8-bit).

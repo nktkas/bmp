@@ -1,11 +1,11 @@
 /**
- * @module
  * Shared types and utilities for BMP encoding/decoding.
+ * @module
  */
 
-// ============================================================================
+// ============================================================
 // Types
-// ============================================================================
+// ============================================================
 
 /** Raw pixel data in grayscale, RGB, or RGBA format. */
 export interface RawImageData {
@@ -46,7 +46,7 @@ export interface BitfieldMasks {
  *
  * BMP files have many header versions (CORE 12 bytes, OS/2 16/64, INFO 40,
  * V2 52, V3 56, V4 108, V5 124). This interface normalizes them all into one
- * shape so that decoders don't need to handle each variant separately.
+ * shape so that decoders do not need to handle each variant separately.
  */
 export interface BmpHeader {
   /** Byte offset from the start of the file to the pixel data. */
@@ -87,16 +87,16 @@ export interface BmpHeader {
   alphaMask: number;
 }
 
-// ============================================================================
+// ============================================================
 // Utilities
-// ============================================================================
+// ============================================================
 
 /**
- * Derives absolute dimensions and row order from the signed width/height stored in the BMP header.
+ * Derive absolute dimensions and row order from the signed width/height stored in the BMP header.
  *
- * @param width - Image width (signed).
- * @param height - Image height (signed: positive = bottom-up, negative = top-down).
- * @returns Absolute dimensions and whether rows are stored top-down.
+ * @param width Image width (signed).
+ * @param height Image height (signed: positive = bottom-up, negative = top-down).
+ * @return Absolute dimensions and whether rows are stored top-down.
  */
 export function getImageLayout(width: number, height: number): {
   absWidth: number;
@@ -111,12 +111,11 @@ export function getImageLayout(width: number, height: number): {
 }
 
 /**
- * Calculates the byte stride (bytes per row) for a BMP image.
- * BMP rows must be padded to 4-byte boundaries.
+ * Calculate the byte stride (bytes per row) for a BMP image.
  *
- * @param width - Image width in pixels.
- * @param bitsPerPixel - Bits per pixel.
- * @returns Bytes per row, padded to a 4-byte boundary.
+ * @param width Image width in pixels.
+ * @param bitsPerPixel Bits per pixel.
+ * @return Bytes per row, padded to a 4-byte boundary.
  */
 export function calculateStride(width: number, bitsPerPixel: number): number {
   const bytesPerRow = Math.ceil((width * bitsPerPixel) / 8);
@@ -124,10 +123,10 @@ export function calculateStride(width: number, bitsPerPixel: number): number {
 }
 
 /**
- * Analyzes a bit mask to find where the channel bits start and how many there are.
+ * Analyze a bit mask to find where the channel bits start and how many there are.
  *
- * @param mask - Bit mask for a single color channel.
- * @returns `shift` — position of the lowest set bit; `bits` — number of consecutive set bits.
+ * @param mask Bit mask for a single color channel.
+ * @return `shift` — position of the lowest set bit; `bits` — number of consecutive set bits.
  */
 export function analyzeBitMask(mask: number): { shift: number; bits: number } {
   if (mask === 0) return { shift: 0, bits: 0 };

@@ -1,29 +1,14 @@
 /**
- * @module
  * Writes BMP file headers for encoding.
  *
  * Generates the complete header block (file header + DIB header +
  * optional bitfield masks + optional color table) that precedes
  * the pixel data in a BMP file.
+ *
+ * @module
  */
 
 import type { BitfieldMasks, Color } from "../common.ts";
-
-/**
- * BMP compression type constants.
- * - BI_RGB (0) — No compression. Raw pixel data.
- * - BI_RLE8 (1) — 8-bit run-length encoding (256-color indexed).
- * - BI_RLE4 (2) — 4-bit run-length encoding (16-color indexed).
- * - BI_BITFIELDS (3) — Uncompressed with custom RGB bit masks.
- * - BI_ALPHABITFIELDS (6) — Uncompressed with custom RGBA bit masks.
- */
-export const CompressionTypes = {
-  BI_RGB: 0,
-  BI_RLE8: 1,
-  BI_RLE4: 2,
-  BI_BITFIELDS: 3,
-  BI_ALPHABITFIELDS: 6,
-} as const;
 
 /**
  * Which DIB header format to write:
@@ -47,34 +32,54 @@ export interface HeaderParams {
   imageDataSize: number;
   /** Color palette for indexed formats. */
   colorTable?: Color[];
-  /** DIB header format to write. Default: "BITMAPINFOHEADER". */
+  /** DIB header format to write. Default: `"BITMAPINFOHEADER"`. */
   headerType?: HeaderType;
   /** If true, rows are stored top-down instead of the default bottom-up. */
-  topDown?: boolean;
+  isTopDown?: boolean;
   /** Custom bit masks for BI_BITFIELDS/BI_ALPHABITFIELDS compression. */
   bitfields?: BitfieldMasks;
 }
 
 /**
- * Writes the complete BMP header: file header + DIB header + bitfield masks + color table.
+ * BMP compression type constants:
+ * - BI_RGB (0) — No compression. Raw pixel data.
+ * - BI_RLE8 (1) — 8-bit run-length encoding (256-color indexed).
+ * - BI_RLE4 (2) — 4-bit run-length encoding (16-color indexed).
+ * - BI_BITFIELDS (3) — Uncompressed with custom RGB bit masks.
+ * - BI_ALPHABITFIELDS (6) — Uncompressed with custom RGBA bit masks.
+ */
+export const CompressionTypes = {
+  BI_RGB: 0,
+  BI_RLE8: 1,
+  BI_RLE4: 2,
+  BI_BITFIELDS: 3,
+  BI_ALPHABITFIELDS: 6,
+} as const;
+
+/**
+ * Write the complete BMP header: file header + DIB header + bitfield masks + color table.
  *
- * @param params - Header parameters.
- * @returns A byte array containing everything before the pixel data.
+ * @param params Header parameters.
+ * @return A byte array containing everything before the pixel data.
  */
 export function writeHeader(params: HeaderParams): Uint8Array {
-  const headerType = params.headerType || "BITMAPINFOHEADER";
-  const infoHeaderSize = headerType === "BITMAPV5HEADER" ? 124 : headerType === "BITMAPV4HEADER" ? 108 : 40;
+  const headerType = params.headerType ?? "BITMAPINFOHEADER";
+
+  let infoHeaderSize: number;
+  if (headerType === "BITMAPV5HEADER") infoHeaderSize = 124;
+  else if (headerType === "BITMAPV4HEADER") infoHeaderSize = 108;
+  else infoHeaderSize = 40;
 
   // Build DIB header
   const infoHeader = writeInfoHeader(params, headerType, infoHeaderSize);
 
-  // Bitfield masks are stored separately only for BITMAPINFOHEADER;
-  // V4/V5 headers embed them in the DIB header itself
-  const needsSeparateMasks = headerType === "BITMAPINFOHEADER" &&
+  // Bitfield masks are stored separately only for BITMAPINFOHEADER.
+  // V4/V5 headers embed them in the DIB header itself.
+  const hasSeparateMasks = headerType === "BITMAPINFOHEADER" &&
     (params.compression === CompressionTypes.BI_BITFIELDS ||
       params.compression === CompressionTypes.BI_ALPHABITFIELDS) &&
     params.bitfields;
-  const masksBuffer = needsSeparateMasks ? writeBitfieldMasks(params.bitfields!) : new Uint8Array(0);
+  const masksBuffer = hasSeparateMasks ? writeBitfieldMasks(params.bitfields!) : new Uint8Array(0);
 
   // Color table (palette)
   const colorTableBuffer = params.colorTable ? writeColorTable(params.colorTable) : new Uint8Array(0);
@@ -97,7 +102,13 @@ export function writeHeader(params: HeaderParams): Uint8Array {
   return result;
 }
 
-/** Writes the 14-byte BMP file header ("BM" + file size + reserved + data offset). */
+/**
+ * Write the 14-byte BMP file header ("BM" + file size + reserved + data offset).
+ *
+ * @param imageDataSize Size of the pixel data in bytes.
+ * @param pixelDataOffset Byte offset from the start of the file to the pixel data.
+ * @return 14-byte file header.
+ */
 function writeFileHeader(imageDataSize: number, pixelDataOffset: number): Uint8Array {
   const header = new Uint8Array(14);
   const view = new DataView(header.buffer);
@@ -110,12 +121,19 @@ function writeFileHeader(imageDataSize: number, pixelDataOffset: number): Uint8A
   return header;
 }
 
-/** Writes the DIB header (40, 108, or 124 bytes depending on version). */
+/**
+ * Write the DIB header (40, 108, or 124 bytes depending on version).
+ *
+ * @param params Header parameters.
+ * @param headerType DIB header format.
+ * @param size Header size in bytes.
+ * @return DIB header byte array.
+ */
 function writeInfoHeader(params: HeaderParams, headerType: HeaderType, size: number): Uint8Array {
   const header = new Uint8Array(size);
   const view = new DataView(header.buffer);
 
-  const height = params.topDown ? -params.height : params.height;
+  const height = params.isTopDown ? -params.height : params.height;
 
   // Base BITMAPINFOHEADER fields (40 bytes)
   view.setUint32(0, size, true); // Header size
@@ -135,7 +153,7 @@ function writeInfoHeader(params: HeaderParams, headerType: HeaderType, size: num
       view.setUint32(40, params.bitfields.redMask, true);
       view.setUint32(44, params.bitfields.greenMask, true);
       view.setUint32(48, params.bitfields.blueMask, true);
-      view.setUint32(52, params.bitfields.alphaMask || 0, true);
+      view.setUint32(52, params.bitfields.alphaMask ?? 0, true);
     } else if (params.bitsPerPixel === 32) {
       // Default BGRA masks
       view.setUint32(40, 0x00FF0000, true);
@@ -161,7 +179,12 @@ function writeInfoHeader(params: HeaderParams, headerType: HeaderType, size: num
   return header;
 }
 
-/** Writes bitfield masks as a separate block (12 or 16 bytes). */
+/**
+ * Write bitfield masks as a separate block (12 or 16 bytes).
+ *
+ * @param masks Bitfield masks for each channel.
+ * @return Byte array with packed masks.
+ */
 function writeBitfieldMasks(masks: BitfieldMasks): Uint8Array {
   const hasAlpha = masks.alphaMask !== undefined;
   const buffer = new Uint8Array(hasAlpha ? 16 : 12);
@@ -177,7 +200,12 @@ function writeBitfieldMasks(masks: BitfieldMasks): Uint8Array {
   return buffer;
 }
 
-/** Writes a color table (palette) in BMP's BGR+reserved format. */
+/**
+ * Write a color table (palette) in BMP's BGR+reserved format.
+ *
+ * @param colors Array of palette colors.
+ * @return Byte array with packed palette entries.
+ */
 function writeColorTable(colors: Color[]): Uint8Array {
   const buffer = new Uint8Array(colors.length * 4);
 

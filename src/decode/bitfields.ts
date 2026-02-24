@@ -1,16 +1,16 @@
 /**
- * @module
  * Decodes BMP images with BI_BITFIELDS or BI_ALPHABITFIELDS compression.
+ * @module
  */
 
 import { analyzeBitMask, type BmpHeader, calculateStride, getImageLayout, type RawImageData } from "../common.ts";
 
 /**
- * Decodes a BI_BITFIELDS / BI_ALPHABITFIELDS BMP image to raw pixel data.
+ * Decode a BI_BITFIELDS / BI_ALPHABITFIELDS BMP image to raw pixel data.
  *
- * @param bmp - Complete BMP file contents.
- * @param header - Parsed BMP header with bitfield masks.
- * @returns Decoded pixel data (RGB or RGBA depending on alpha mask presence).
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header with bitfield masks.
+ * @return Decoded pixel data (RGB or RGBA depending on alpha mask presence).
  */
 export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
@@ -111,7 +111,12 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
   return { width: absWidth, height: absHeight, channels, data: output };
 }
 
-/** Creates a lookup table that scales raw channel values to 0–255. */
+/**
+ * Create a lookup table that scales raw channel values to 0–255.
+ *
+ * @param bits Number of bits in the channel.
+ * @return Lookup table mapping raw values to 0–255.
+ */
 function createScalingLut(bits: number): Uint8Array {
   if (bits === 0) return new Uint8Array(1);
   const size = 1 << bits;

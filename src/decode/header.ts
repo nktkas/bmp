@@ -1,25 +1,27 @@
 /**
- * @module
  * Parses the BMP file header and DIB (info) header into a single flat structure.
  *
  * Supports all known DIB header sizes: BITMAPCOREHEADER (12), OS22XBITMAPHEADER (16/64),
  * BITMAPINFOHEADER (40), BITMAPV2INFOHEADER (52), BITMAPV3INFOHEADER (56),
  * BITMAPV4HEADER (108), BITMAPV5HEADER (124).
+ *
+ * @module
  */
 
 import type { BmpHeader } from "../common.ts";
 
 /**
- * Reads and normalizes the BMP file header + DIB header into a flat {@link BmpHeader}.
+ * Read and normalize the BMP file header + DIB header into a flat {@link BmpHeader}.
  *
- * @param data - Complete BMP file contents.
- * @returns Normalized header with all fields unified across header versions.
+ * @param data Complete BMP file contents.
+ * @return Normalized header with all fields unified across header versions.
+ *
  * @throws {Error} If the BMP signature is invalid or the header size is unsupported.
  */
 export function readHeader(data: Uint8Array): BmpHeader {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  // --- File header (14 bytes, always present) ---
+  // --- File header (14 bytes, always present) ----------------------
 
   const bfType = view.getUint16(0, true);
   if (bfType !== 0x4D42) {
@@ -29,7 +31,7 @@ export function readHeader(data: Uint8Array): BmpHeader {
   const dataOffset = view.getUint32(10, true);
   const headerSize = view.getUint32(14, true);
 
-  // --- DIB header (variable size) ---
+  // --- DIB header (variable size) ----------------------------------
 
   // Start with defaults for fields that may not exist in older headers
   let width = 0;

@@ -1,5 +1,4 @@
 /**
- * @module
  * BMP image decoder — converts BMP binary data to raw pixel data.
  *
  * Supports all standard BMP compression types: BI_RGB, BI_RLE8, BI_RLE4,
@@ -13,20 +12,36 @@
  * const bmp = await Deno.readFile("image.bmp");
  * const { width, height, channels, data } = decode(bmp);
  * ```
+ *
+ * @module
  */
 
 import type { RawImageData } from "../common.ts";
-import { readHeader } from "./header.ts";
-import { decodeRgb } from "./rgb.ts";
 import { decodeBitfields } from "./bitfields.ts";
-import { decodeRle } from "./rle.ts";
+import { readHeader } from "./header.ts";
 import { decodeHuffman } from "./huffman.ts";
+import { decodeRgb } from "./rgb.ts";
+import { decodeRle } from "./rle.ts";
+
+export type { RawImageData };
+
+/** Compressed image data extracted from a BMP file without decompression. */
+export interface CompressedImageData {
+  /** Image width in pixels. */
+  width: number;
+  /** Image height in pixels. */
+  height: number;
+  /** BMP compression type (e.g. 4 = BI_JPEG, 5 = BI_PNG). */
+  compression: number;
+  /** Raw compressed data (e.g. a complete JPEG or PNG file). */
+  data: Uint8Array;
+}
 
 /**
- * Decodes a BMP image to raw pixel data.
+ * Decode a BMP image to raw pixel data.
  *
- * @param bmp - Complete BMP file contents as a byte array.
- * @returns Raw pixel data with width, height, channel count, and pixel buffer.
+ * @param bmp Complete BMP file contents as a byte array.
+ * @return Raw pixel data with width, height, channel count, and pixel buffer.
  */
 export function decode(bmp: Uint8Array): RawImageData {
   const header = readHeader(bmp);
@@ -61,26 +76,14 @@ export function decode(bmp: Uint8Array): RawImageData {
   }
 }
 
-/** Compressed image data extracted from a BMP file without decompression. */
-export interface CompressedImageData {
-  /** Image width in pixels. */
-  width: number;
-  /** Image height in pixels. */
-  height: number;
-  /** BMP compression type (e.g. 4 = BI_JPEG, 5 = BI_PNG). */
-  compression: number;
-  /** Raw compressed data (e.g. a complete JPEG or PNG file). */
-  data: Uint8Array;
-}
-
 /**
- * Extracts compressed image data from a BMP file without decompression.
+ * Extract compressed image data from a BMP file without decompression.
  *
  * Useful for BMP files that embed JPEG (compression = 4) or PNG (compression = 5)
  * data. The extracted data can be decoded with any standard JPEG/PNG decoder.
  *
- * @param bmp - Complete BMP file contents as a byte array.
- * @returns Compressed image data with dimensions and compression type.
+ * @param bmp Complete BMP file contents as a byte array.
+ * @return Compressed image data with dimensions and compression type.
  *
  * @example
  * ```ts
@@ -102,5 +105,3 @@ export function extractCompressedData(bmp: Uint8Array): CompressedImageData {
     data: bmp.subarray(dataOffset, dataOffset + imageSize),
   };
 }
-
-export type { RawImageData };

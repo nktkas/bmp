@@ -1,5 +1,4 @@
 /**
- * @module
  * Decodes BMP images with Modified Huffman (CCITT Group 3 1D) compression.
  *
  * This is an OS/2-specific compression method (biCompression = 3 with 1bpp)
@@ -8,14 +7,16 @@
  * be zero-length), followed by alternating black and white runs.
  *
  * The lookup tables below are defined by the CCITT Group 3 standard.
+ *
+ * @module
  */
 
 import { type BmpHeader, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
-// ============================================================================
+// ============================================================
 // Huffman trie
-// ============================================================================
+// ============================================================
 
 /** Node in a binary trie for Huffman code lookup. */
 interface TrieNode {
@@ -25,7 +26,20 @@ interface TrieNode {
   children: [TrieNode | null, TrieNode | null];
 }
 
-/** Builds a binary trie from a table of bit-string codes → run lengths. */
+/** Merged trie containing both make-up and terminating codes for one color. */
+interface RunTries {
+  /** Trie for make-up codes (run lengths 64–1728, multiples of 64). */
+  makeup: TrieNode;
+  /** Trie for terminating codes (run lengths 0–63). */
+  terminating: TrieNode;
+}
+
+/**
+ * Build a binary trie from a table of bit-string codes → run lengths.
+ *
+ * @param table Map of bit-string codes to run length values.
+ * @return Root node of the constructed trie.
+ */
 function buildTrie(table: Record<string, number>): TrieNode {
   const root: TrieNode = { value: -1, children: [null, null] };
   for (const [code, value] of Object.entries(table)) {
@@ -42,19 +56,11 @@ function buildTrie(table: Record<string, number>): TrieNode {
   return root;
 }
 
-/** Merged trie containing both make-up and terminating codes for one color. */
-interface RunTries {
-  /** Trie for make-up codes (run lengths 64–1728, multiples of 64). */
-  makeup: TrieNode;
-  /** Trie for terminating codes (run lengths 0–63). */
-  terminating: TrieNode;
-}
-
-// ============================================================================
+// ============================================================
 // Huffman code tables (CCITT Group 3 1D standard)
-// ============================================================================
+// ============================================================
 
-// --- White run codes ---
+// --- White run codes ---------------------------------------------
 
 /** White terminating codes: bit patterns → run lengths 0–63. */
 const WHITE_TERMINATING: Record<string, number> = {
@@ -155,7 +161,7 @@ const WHITE_MAKEUP: Record<string, number> = {
   "010011011": 1728,
 };
 
-// --- Black run codes ---
+// --- Black run codes ---------------------------------------------
 
 /** Black terminating codes: bit patterns → run lengths 0–63. */
 const BLACK_TERMINATING: Record<string, number> = {
@@ -260,23 +266,36 @@ const BLACK_MAKEUP: Record<string, number> = {
 const WHITE_TRIES: RunTries = { makeup: buildTrie(WHITE_MAKEUP), terminating: buildTrie(WHITE_TERMINATING) };
 const BLACK_TRIES: RunTries = { makeup: buildTrie(BLACK_MAKEUP), terminating: buildTrie(BLACK_TERMINATING) };
 
-// ============================================================================
+// ============================================================
 // Bit reader
-// ============================================================================
+// ============================================================
 
-/** Reads individual bits from a byte array, MSB first. */
+/** Read individual bits from a byte array, MSB first. */
 class BitReader {
-  private data: Uint8Array;
-  private bitPos: number;
-  private totalBits: number;
+  /** Source byte array. */
+  protected data: Uint8Array;
+  /** Current bit position within the data. */
+  protected bitPos: number;
+  /** Total number of bits available. */
+  protected totalBits: number;
 
+  /**
+   * Create a new bit reader.
+   *
+   * @param data Source byte array.
+   * @param startByte Byte offset to start reading from.
+   */
   constructor(data: Uint8Array, startByte: number) {
     this.data = data;
     this.bitPos = startByte * 8;
     this.totalBits = data.length * 8;
   }
 
-  /** Reads one bit and advances the position. Returns 0 or 1. */
+  /**
+   * Read one bit and advance the position.
+   *
+   * @return Bit value: 0 or 1.
+   */
   readBit(): number {
     const byteIdx = this.bitPos >>> 3;
     const bitIdx = 7 - (this.bitPos & 7);
@@ -284,17 +303,30 @@ class BitReader {
     return (this.data[byteIdx] >>> bitIdx) & 1;
   }
 
-  /** Advances position by `n` bits. */
+  /**
+   * Advance position by `n` bits.
+   *
+   * @param n Number of bits to skip.
+   */
   skip(n: number): void {
     this.bitPos += n;
   }
 
-  /** Returns true if there are at least `n` bits remaining. */
+  /**
+   * Return true if there are at least `n` bits remaining.
+   *
+   * @param n Minimum number of bits required.
+   * @return `true` if enough bits remain.
+   */
   hasAtLeast(n: number): boolean {
     return this.bitPos + n <= this.totalBits;
   }
 
-  /** Checks whether the next 12 bits match the EOL pattern (000000000001). */
+  /**
+   * Check whether the next 12 bits match the EOL pattern (000000000001).
+   *
+   * @return `true` if the next 12 bits are an EOL marker.
+   */
   isEol(): boolean {
     if (!this.hasAtLeast(12)) return false;
     let pos = this.bitPos;
@@ -306,16 +338,16 @@ class BitReader {
   }
 }
 
-// ============================================================================
+// ============================================================
 // Decoder
-// ============================================================================
+// ============================================================
 
 /**
- * Decodes a Modified Huffman (CCITT Group 3 1D) compressed BMP to raw pixel data.
+ * Decode a Modified Huffman (CCITT Group 3 1D) compressed BMP to raw pixel data.
  *
- * @param bmp - Complete BMP file contents.
- * @param header - Parsed BMP header (must be 1bpp).
- * @returns Decoded pixel data (grayscale or RGB depending on palette).
+ * @param bmp Complete BMP file contents.
+ * @param header Parsed BMP header (must be 1bpp).
+ * @return Decoded pixel data (grayscale or RGB depending on palette).
  */
 export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, width, height } = header;
@@ -355,7 +387,15 @@ export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData 
   return { width: absWidth, height: absHeight, channels, data: output };
 }
 
-/** Decompresses Modified Huffman data into a flat array of 0/1 palette indices. */
+/**
+ * Decompress Modified Huffman data into a flat array of 0/1 palette indices.
+ *
+ * @param bmp Complete BMP file contents.
+ * @param dataOffset Byte offset to the start of compressed data.
+ * @param absWidth Absolute image width in pixels.
+ * @param absHeight Absolute image height in pixels.
+ * @return Flat array of 0/1 palette indices.
+ */
 function decompressHuffman(
   bmp: Uint8Array,
   dataOffset: number,
@@ -402,8 +442,11 @@ function decompressHuffman(
 }
 
 /**
- * Decodes a single run (white or black) by walking the Huffman tries.
- * Returns the run length, or -1 if no valid code was found.
+ * Decode a single run (white or black) by walking the Huffman tries.
+ *
+ * @param reader Bit reader positioned at the start of the run code.
+ * @param isWhite Whether to decode a white run (true) or black run (false).
+ * @return Run length, or -1 if no valid code was found.
  */
 function decodeRun(reader: BitReader, isWhite: boolean): number {
   const tries = isWhite ? WHITE_TRIES : BLACK_TRIES;
@@ -431,7 +474,13 @@ function decodeRun(reader: BitReader, isWhite: boolean): number {
   return totalLength > 0 ? totalLength : -1;
 }
 
-/** Walks a Huffman trie bit-by-bit. Returns the decoded value, or -1 if no match. */
+/**
+ * Walk a Huffman trie bit-by-bit.
+ *
+ * @param reader Bit reader to consume bits from.
+ * @param root Root node of the Huffman trie.
+ * @return Decoded value, or -1 if no match.
+ */
 function walkTrie(reader: BitReader, root: TrieNode): number {
   let node: TrieNode | null = root;
   let bitsRead = 0;
