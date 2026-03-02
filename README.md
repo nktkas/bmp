@@ -28,39 +28,14 @@ Supported BMP formats:
 
 #### Basic usage
 
-<!-- deno-fmt-ignore -->
 ```ts
 import { decode } from "@nktkas/bmp";
 
-// A minimal 1x1 pixel 24-bit BMP file
-const file = new Uint8Array([
-  // BMP File Header (14 bytes)
-  0x42, 0x4D,
-  0x3A, 0x00, 0x00, 0x00,
-  0x00, 0x00,
-  0x00, 0x00,
-  0x36, 0x00, 0x00, 0x00,
-  // DIB Header (BITMAPINFOHEADER, 40 bytes)
-  0x28, 0x00, 0x00, 0x00,
-  0x01, 0x00, 0x00, 0x00,
-  0x01, 0x00, 0x00, 0x00,
-  0x01, 0x00,
-  0x18, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x04, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  // Pixel data (BGR + padding) - 1x1 black pixel
-  0x00, 0x00, 0x00,
-  0x00
-]);
-
+const file = new Uint8Array([/* ... BMP file bytes ... */]);
 const raw = decode(file);
 // { width: 1, height: 1, channels: 3, data: Uint8Array(3) [0, 0, 0] }
-//                                 ^^^
-//                                 may be 1 (grayscale), 3 (RGB), or 4 (RGBA)
+//                                  ^
+//                                  may be 1 (grayscale), 3 (RGB), or 4 (RGBA)
 ```
 
 #### BI_JPEG / BI_PNG compressed images
@@ -68,50 +43,14 @@ const raw = decode(file);
 BMP files can embed JPEG or PNG data as pixel payload. Use `extractCompressedData` to get the embedded data, then decode
 it with any JPEG/PNG library.
 
-<!-- deno-fmt-ignore -->
 ```ts
 import { extractCompressedData } from "@nktkas/bmp";
 
-// A minimal 1x1 pixel BMP file with embedded PNG data
-const bmp = new Uint8Array([
-  // BMP File Header (14 bytes)
-  0x42, 0x4D,
-  0x7B, 0x00, 0x00, 0x00,
-  0x00, 0x00,
-  0x00, 0x00,
-  0x36, 0x00, 0x00, 0x00,
-  // DIB Header (BITMAPINFOHEADER, 40 bytes)
-  0x28, 0x00, 0x00, 0x00,
-  0x01, 0x00, 0x00, 0x00,
-  0x01, 0x00, 0x00, 0x00,
-  0x01, 0x00,
-  0x00, 0x00,
-  0x05, 0x00, 0x00, 0x00,
-  0x45, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-  // Embedded PNG data (69 bytes) - 1x1 black pixel
-  // PNG signature
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-  // IHDR chunk
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x00, 0x00, 0x00, 0x00, 0x3A, 0x7E, 0x9B, 0x55,
-  // IDAT chunk
-  0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54,
-  0x08, 0x1D, 0x01, 0x02, 0x00, 0xFD, 0xFF, 0x00,
-  0x00, 0xE5, 0xE3, 0x00, 0x09, 0x74, 0xC6, 0xD6, 0xC2,
-  // IEND chunk
-  0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-  0xAE, 0x42, 0x60, 0x82
-]);
-
+const bmp = new Uint8Array([/* ... BMP file bytes with BI_PNG compression ... */]);
 const extracted = extractCompressedData(bmp);
 // { width: 1, height: 1, compression: 5, data: Uint8Array(69) [...] }
-//                                    ^^^
-//                                    4 = BI_JPEG, 5 = BI_PNG
+//                                     ^
+//                                     4 = BI_JPEG, 5 = BI_PNG
 
 // Then decode with any JPEG/PNG library
 import sharp from "sharp";
@@ -146,7 +85,8 @@ const raw = {
 
 // Encode to 24-bit BMP (automatic detection of best settings based on raw data)
 const bmp = encode(raw);
-// Returns Uint8Array with complete BMP file
+//    ^^^
+//    Uint8Array([...]) containing the BMP file bytes
 ```
 
 #### Advanced options
@@ -207,6 +147,27 @@ interface EncodeOptions {
    */
   bitfields?: BitfieldMasks;
 }
+```
+
+<!-- deno-fmt-ignore -->
+```ts
+import { encode } from "@nktkas/bmp";
+
+// A minimal raw image
+const raw = {
+  width: 2,
+  height: 2,
+  channels: 3, // 1 (grayscale), 3 (RGB), or 4 (RGBA)
+  data: new Uint8Array([ // 2x2 black and white pixels
+    0, 0, 0,  255, 255, 255,
+    0, 0, 0,  255, 255, 255,
+  ]),
+} as const;
+
+// Encode to 8-bit indexed BMP with auto-generated 256-color palette
+const bmp = encode(raw, { bitsPerPixel: 8 });
+//    ^^^
+//    Uint8Array([...]) containing the BMP file bytes
 ```
 
 ## Benchmarks
