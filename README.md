@@ -217,3 +217,9 @@ Microseconds per operation (µs; lower is better). **Bold** = fastest in row, `�
 | BI_RLE8           |    160.7    |                         —                          |                       —                        |
 | BI_BITFIELDS 16   |    13.7     |                         —                          |                       —                        |
 | BI_BITFIELDS 32   |    17.4     |                         —                          |                       —                        |
+
+## License
+
+**@nktkas/bmp** is licensed under the [MIT License](LICENSE).
+
+Copyright © 2025-present [nktkas](https://github.com/nktkas).
