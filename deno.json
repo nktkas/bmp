@@ -9,5 +9,8 @@
   },
   "fmt": {
     "lineWidth": 120
+  },
+  "publish": {
+    "exclude": ["tests/", "bench/", ".github/"]
   }
 }
