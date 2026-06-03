@@ -154,6 +154,27 @@ export function calculateStride(width: number, bitsPerPixel: number): number {
 }
 
 /**
+ * Validate image dimensions before allocating pixel buffers.
+ *
+ * A BMP header can declare arbitrary 32-bit dimensions; the cap rejects absurd values (e.g. a tiny
+ * malicious file claiming 10^12 pixels) before any buffer is allocated, while staying far above any
+ * real-world image.
+ *
+ * @param width Absolute image width in pixels.
+ * @param height Absolute image height in pixels.
+ * @throws {Error} If either dimension is non-positive or the total pixel count is too large.
+ */
+export function validateImageSize(width: number, height: number): void {
+  const MAX_IMAGE_PIXELS = 1 << 30;
+  if (width <= 0 || height <= 0) {
+    throw new Error(`Invalid image dimensions: ${width}x${height}`);
+  }
+  if (width * height > MAX_IMAGE_PIXELS) {
+    throw new Error(`Image dimensions too large: ${width}x${height} exceeds ${MAX_IMAGE_PIXELS} pixels`);
+  }
+}
+
+/**
  * Analyze a bit mask to find where the channel bits start and how many there are.
  *
  * @param mask Bit mask for a single color channel.

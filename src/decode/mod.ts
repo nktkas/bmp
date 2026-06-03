@@ -16,7 +16,7 @@
  * @module
  */
 
-import { CompressionTypes, type RawImageData } from "../common.ts";
+import { CompressionTypes, type RawImageData, validateImageSize } from "../common.ts";
 import { decodeBitfields } from "./bitfields.ts";
 import { readHeader } from "./header.ts";
 import { decodeHuffman } from "./huffman.ts";
@@ -45,6 +45,7 @@ export interface CompressedImageData {
  */
 export function decode(bmp: Uint8Array): RawImageData {
   const header = readHeader(bmp);
+  validateImageSize(Math.abs(header.width), Math.abs(header.height));
 
   switch (header.compression) {
     case CompressionTypes.BI_RGB:
