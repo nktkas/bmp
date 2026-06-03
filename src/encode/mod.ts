@@ -77,7 +77,7 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
   const headerType = options.headerType ?? "BITMAPINFOHEADER";
   const isTopDown = options.isTopDown ?? false;
 
-  validateOptions(raw, bitsPerPixel, compression);
+  validateOptions(raw, bitsPerPixel, compression, isTopDown);
 
   // Encode pixel data
   let pixelData: Uint8Array;
@@ -173,8 +173,9 @@ function getDefaultBitfieldMasks(bitsPerPixel: 16 | 32): BitfieldMasks {
  * @param raw Source pixel data.
  * @param bitsPerPixel Target bit depth.
  * @param compression Compression type.
+ * @param isTopDown Whether rows are stored top-down.
  */
-function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: number): void {
+function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: number, isTopDown: boolean): void {
   if (raw.width <= 0 || raw.height <= 0) {
     throw new Error("Invalid image dimensions");
   }
@@ -184,6 +185,10 @@ function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: n
   }
   if (compression === CompressionTypes.BI_RLE8 && bitsPerPixel !== 8) throw new Error("BI_RLE8 requires 8-bit format");
   if (compression === CompressionTypes.BI_RLE4 && bitsPerPixel !== 4) throw new Error("BI_RLE4 requires 4-bit format");
+  // RLE images are always stored bottom-up; top-down RLE is invalid per the BMP spec.
+  if ((compression === CompressionTypes.BI_RLE8 || compression === CompressionTypes.BI_RLE4) && isTopDown) {
+    throw new Error("Top-down row order is not supported for RLE compression");
+  }
   if (compression === CompressionTypes.BI_BITFIELDS && bitsPerPixel !== 16 && bitsPerPixel !== 32) {
     throw new Error("BI_BITFIELDS requires 16 or 32-bit format");
   }

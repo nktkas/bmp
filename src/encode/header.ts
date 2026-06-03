@@ -129,7 +129,7 @@ function writeInfoHeader(params: HeaderParams, headerType: HeaderType, size: num
   view.setUint32(20, params.imageDataSize, true);
   view.setInt32(24, 2835, true); // X resolution: 72 DPI
   view.setInt32(28, 2835, true); // Y resolution: 72 DPI
-  // Colors used (32) and Important colors (36) are left as 0
+  view.setUint32(32, params.colorTable?.length ?? 0, true); // Colors used (the actual palette size)
 
   // V4/V5 extensions: embedded bitfield masks + color space
   if (headerType === "BITMAPV4HEADER" || headerType === "BITMAPV5HEADER") {
