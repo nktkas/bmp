@@ -219,8 +219,11 @@ function encodeRlePixels(
       }
     }
 
-    output[pos++] = 0x00; // Escape
-    output[pos++] = 0x00; // End of line
+    // End-of-line marker between rows only
+    if (y > 0) {
+      output[pos++] = 0x00; // Escape
+      output[pos++] = 0x00; // End of line
+    }
   }
 
   output[pos++] = 0x00; // Escape
