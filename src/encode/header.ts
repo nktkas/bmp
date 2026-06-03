@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { BitfieldMasks, Color } from "../common.ts";
+import { type BitfieldMasks, type Color, CompressionTypes } from "../common.ts";
 
 /**
  * Which DIB header format to write:
@@ -39,22 +39,6 @@ export interface HeaderParams {
   /** Custom bit masks for BI_BITFIELDS/BI_ALPHABITFIELDS compression. */
   bitfields?: BitfieldMasks;
 }
-
-/**
- * BMP compression type constants:
- * - BI_RGB (0) — No compression. Raw pixel data.
- * - BI_RLE8 (1) — 8-bit run-length encoding (256-color indexed).
- * - BI_RLE4 (2) — 4-bit run-length encoding (16-color indexed).
- * - BI_BITFIELDS (3) — Uncompressed with custom RGB bit masks.
- * - BI_ALPHABITFIELDS (6) — Uncompressed with custom RGBA bit masks.
- */
-export const CompressionTypes = {
-  BI_RGB: 0,
-  BI_RLE8: 1,
-  BI_RLE4: 2,
-  BI_BITFIELDS: 3,
-  BI_ALPHABITFIELDS: 6,
-} as const;
 
 /**
  * Write the complete BMP header: file header + DIB header + bitfield masks + color table.

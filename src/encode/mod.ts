@@ -21,9 +21,9 @@
  * @module
  */
 
-import type { BitfieldMasks, Color, RawImageData } from "../common.ts";
+import { type BitfieldMasks, type Color, CompressionTypes, type RawImageData } from "../common.ts";
 import { encodeBitfields } from "./bitfields.ts";
-import { CompressionTypes, type HeaderType, writeHeader } from "./header.ts";
+import { type HeaderType, writeHeader } from "./header.ts";
 import { encodeRgb } from "./rgb.ts";
 import { encodeRle4, encodeRle8 } from "./rle.ts";
 
@@ -182,12 +182,12 @@ function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: n
   if (raw.data.length !== expectedSize) {
     throw new Error(`Invalid data size: expected ${expectedSize}, got ${raw.data.length}`);
   }
-  if (compression === 1 && bitsPerPixel !== 8) throw new Error("BI_RLE8 requires 8-bit format");
-  if (compression === 2 && bitsPerPixel !== 4) throw new Error("BI_RLE4 requires 4-bit format");
-  if (compression === 3 && bitsPerPixel !== 16 && bitsPerPixel !== 32) {
+  if (compression === CompressionTypes.BI_RLE8 && bitsPerPixel !== 8) throw new Error("BI_RLE8 requires 8-bit format");
+  if (compression === CompressionTypes.BI_RLE4 && bitsPerPixel !== 4) throw new Error("BI_RLE4 requires 4-bit format");
+  if (compression === CompressionTypes.BI_BITFIELDS && bitsPerPixel !== 16 && bitsPerPixel !== 32) {
     throw new Error("BI_BITFIELDS requires 16 or 32-bit format");
   }
-  if (compression === 6 && bitsPerPixel !== 32) {
+  if (compression === CompressionTypes.BI_ALPHABITFIELDS && bitsPerPixel !== 32) {
     throw new Error("BI_ALPHABITFIELDS requires 32-bit format");
   }
 }

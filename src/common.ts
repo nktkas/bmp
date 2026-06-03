@@ -88,6 +88,37 @@ export interface BmpHeader {
 }
 
 // ============================================================
+// Constants
+// ============================================================
+
+/**
+ * BMP compression methods (the `biCompression` field).
+ *
+ * Note the format overloads two codes by bit depth:
+ * - code 3 is BI_BITFIELDS, or Modified Huffman when `bitsPerPixel === 1`
+ * - code 4 is BI_JPEG, or RLE24 when `bitsPerPixel === 24`
+ */
+export const CompressionTypes = {
+  /** Uncompressed RGB / indexed. */
+  BI_RGB: 0,
+  /** 8-bit run-length encoding (256-color indexed). */
+  BI_RLE8: 1,
+  /** 4-bit run-length encoding (16-color indexed). */
+  BI_RLE4: 2,
+  /** Custom RGB bit masks (or Modified Huffman at 1bpp). */
+  BI_BITFIELDS: 3,
+  /** Embedded JPEG (or RLE24 at 24bpp). */
+  BI_JPEG: 4,
+  /** Embedded PNG. */
+  BI_PNG: 5,
+  /** Custom RGBA bit masks. */
+  BI_ALPHABITFIELDS: 6,
+} as const satisfies Record<string, number>;
+
+/** A BMP compression method value (see {@link CompressionTypes}). */
+export type CompressionType = typeof CompressionTypes[keyof typeof CompressionTypes];
+
+// ============================================================
 // Utilities
 // ============================================================
 

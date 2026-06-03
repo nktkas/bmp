@@ -9,7 +9,7 @@
  * @module
  */
 
-import { type BmpHeader, getImageLayout, type RawImageData } from "../common.ts";
+import { type BmpHeader, CompressionTypes, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /**
@@ -21,8 +21,8 @@ import { extractPalette } from "./palette.ts";
  */
 export function decodeRle(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { compression, bitsPerPixel } = header;
-  if (compression === 4 && bitsPerPixel === 24) return decodeRle24(bmp, header);
-  if (compression === 1) return decodeRle8(bmp, header);
+  if (compression === CompressionTypes.BI_JPEG && bitsPerPixel === 24) return decodeRle24(bmp, header);
+  if (compression === CompressionTypes.BI_RLE8) return decodeRle8(bmp, header);
   return decodeRle4(bmp, header);
 }
 
@@ -54,7 +54,7 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
     while (i < bmp.length - 1) {
       const count = bmp[i++];
       if (count > 0) {
-        // Encoded: repeat single index
+        // Encoded: repeat one index across the run
         const v = palR[bmp[i++]];
         let pos = y * absWidth + x;
         for (let j = 0; j < count; j++) output[pos++] = v;
@@ -85,14 +85,14 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
     while (i < bmp.length - 1) {
       const count = bmp[i++];
       if (count > 0) {
-        // Encoded: repeat single index as RGB
+        // Encoded: repeat one RGB triplet across the run
         const idx = bmp[i++];
         const r = palR[idx], g = palG[idx], b = palB[idx];
         let pos = (y * absWidth + x) * 3;
         for (let j = 0; j < count; j++) {
-          output[pos++] = r; // R
-          output[pos++] = g; // G
-          output[pos++] = b; // B
+          output[pos++] = r;
+          output[pos++] = g;
+          output[pos++] = b;
         }
         x += count;
       } else {
@@ -202,13 +202,13 @@ function decodeRle4(bmp: Uint8Array, header: BmpHeader): RawImageData {
         let pos = (y * absWidth + x) * 3;
         for (let j = 0; j < count; j++) {
           if (j & 1) {
-            output[pos++] = r2; // R
-            output[pos++] = g2; // G
-            output[pos++] = b2; // B
+            output[pos++] = r2;
+            output[pos++] = g2;
+            output[pos++] = b2;
           } else {
-            output[pos++] = r1; // R
-            output[pos++] = g1; // G
-            output[pos++] = b1; // B
+            output[pos++] = r1;
+            output[pos++] = g1;
+            output[pos++] = b1;
           }
         }
         x += count;
@@ -278,14 +278,14 @@ function decodeRle24(bmp: Uint8Array, header: BmpHeader): RawImageData {
     const count = bmp[i++];
     if (count > 0) {
       // Encoded: repeat one BGR triplet as RGB
-      const b = bmp[i++]; // B
-      const g = bmp[i++]; // G
-      const r = bmp[i++]; // R
+      const b = bmp[i++];
+      const g = bmp[i++];
+      const r = bmp[i++];
       let pos = (y * absWidth + x) * 3;
       for (let j = 0; j < count; j++) {
-        output[pos++] = r; // R
-        output[pos++] = g; // G
-        output[pos++] = b; // B
+        output[pos++] = r;
+        output[pos++] = g;
+        output[pos++] = b;
       }
       x += count;
     } else {

@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { BmpHeader } from "../common.ts";
+import { type BmpHeader, CompressionTypes } from "../common.ts";
 
 /**
  * Read and normalize the BMP file header + DIB header into a flat {@link BmpHeader}.
@@ -84,7 +84,7 @@ export function readHeader(data: Uint8Array): BmpHeader {
     if (headerSize === 40) {
       // Plain BITMAPINFOHEADER — masks may be stored immediately after
       // the header (at offset 14 + 40 = 54) for BI_BITFIELDS compression
-      if (compression === 3 || compression === 6) {
+      if (compression === CompressionTypes.BI_BITFIELDS || compression === CompressionTypes.BI_ALPHABITFIELDS) {
         const maskOffset = 14 + headerSize;
         redMask = view.getUint32(maskOffset, true);
         greenMask = view.getUint32(maskOffset + 4, true);

@@ -16,7 +16,7 @@
  * @module
  */
 
-import type { RawImageData } from "../common.ts";
+import { CompressionTypes, type RawImageData } from "../common.ts";
 import { decodeBitfields } from "./bitfields.ts";
 import { readHeader } from "./header.ts";
 import { decodeHuffman } from "./huffman.ts";
@@ -47,28 +47,28 @@ export function decode(bmp: Uint8Array): RawImageData {
   const header = readHeader(bmp);
 
   switch (header.compression) {
-    case 0: // BI_RGB — uncompressed
+    case CompressionTypes.BI_RGB:
       return decodeRgb(bmp, header);
 
-    case 1: // BI_RLE8
-    case 2: // BI_RLE4
+    case CompressionTypes.BI_RLE8:
+    case CompressionTypes.BI_RLE4:
       return decodeRle(bmp, header);
 
-    case 3: // BI_BITFIELDS or BI_HUFFMAN (distinguished by bitsPerPixel)
+    case CompressionTypes.BI_BITFIELDS: // also Modified Huffman when bitsPerPixel === 1
       return header.bitsPerPixel === 1 ? decodeHuffman(bmp, header) : decodeBitfields(bmp, header);
 
-    case 4: // BI_JPEG or RLE24 (distinguished by bitsPerPixel)
+    case CompressionTypes.BI_JPEG: // also RLE24 when bitsPerPixel === 24
       if (header.bitsPerPixel === 24) return decodeRle(bmp, header);
       throw new Error(
         `Unsupported compression: ${header.compression} (JPEG in BMP). Use "extractCompressedData" to extract the embedded image.`,
       );
 
-    case 5: // BI_PNG
+    case CompressionTypes.BI_PNG:
       throw new Error(
         `Unsupported compression: ${header.compression} (PNG in BMP). Use "extractCompressedData" to extract the embedded image.`,
       );
 
-    case 6: // BI_ALPHABITFIELDS
+    case CompressionTypes.BI_ALPHABITFIELDS:
       return decodeBitfields(bmp, header);
 
     default:
