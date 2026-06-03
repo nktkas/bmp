@@ -1,25 +1,15 @@
 // deno-lint-ignore-file no-import-prefix
 
 /**
- * Compares decoded BMPs against reference PNGs from the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/).
+ * Decode tests against the BMP Suite by Jason Summers (https://entropymine.com/jason/bmpsuite/):
+ * pixel comparison vs reference PNGs for good/questionable files, plus crash safety over the malformed "b/" files.
  */
 
-import { assertEquals } from "jsr:@std/assert@1";
+import { assert, assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
-import pixelmatch from "npm:pixelmatch@7";
 import sharp from "npm:sharp@^0.34.5";
-import { decode, extractCompressedData, type RawImageData } from "../../src/mod.ts";
-import { SUITE_DIR, toRgba } from "../_utils.ts";
-
-/** Checks if a file exists. */
-async function exists(path: string): Promise<boolean> {
-  try {
-    await Deno.stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { decode, extractCompressedData, type RawImageData } from "../src/mod.ts";
+import { assertPixelsMatch, SUITE_DIR } from "./_utils.ts";
 
 /** Compares decoded BMP with PNG reference. */
 async function runTest(filePath: string) {
@@ -49,19 +39,13 @@ async function runTest(filePath: string) {
   // Decode PNG using sharp
   const png = await sharp(pngBuffer).raw().toBuffer({ resolveWithObject: true });
 
-  // Compare dimensions and pixels
-  assertEquals(bmp.width, png.info.width, "Width mismatch");
-  assertEquals(bmp.height, png.info.height, "Height mismatch");
-
-  const diff = pixelmatch(
-    toRgba(bmp.data, bmp.channels),
-    toRgba(png.data, png.info.channels as 1 | 3 | 4),
-    undefined,
-    bmp.width,
-    bmp.height,
-    { threshold: 0.004 }, // Allow very small differences (due to different rounding strategies)
-  );
-  assertEquals(diff, 0, "Found different pixels");
+  // Allow very small differences (different rounding strategies between our decoder and the PNG reference).
+  assertPixelsMatch(bmp, {
+    width: png.info.width,
+    height: png.info.height,
+    channels: png.info.channels as 1 | 3 | 4,
+    data: png.data,
+  }, 0.004);
 }
 
 Deno.test("Decode", async (t) => {
@@ -76,6 +60,7 @@ Deno.test("Decode", async (t) => {
   });
 
   await t.step("'questionable' BMPs", async (t) => {
+    // rgb24prof2.bmp relies on an embedded ICC profile to correct swapped channels; we don't apply ICC profiles.
     const ignored = new Set(["rgb24prof2.bmp"]);
 
     for await (const entry of Deno.readDir(join(SUITE_DIR, "q"))) {
@@ -91,18 +76,22 @@ Deno.test("Decode", async (t) => {
     }
   });
 
-  await t.step("'bad' BMPs", async (t) => {
+  await t.step("'bad' BMPs (crash safety)", async (t) => {
     for await (const entry of Deno.readDir(join(SUITE_DIR, "b"))) {
       if (!entry.name.endsWith(".bmp")) continue;
 
-      const hasPng = await exists(join(SUITE_DIR, "b", entry.name.replace(/\.bmp$/, ".png")));
-
-      await t.step({
-        name: entry.name,
-        ignore: !hasPng,
-        fn: async () => {
-          await runTest(`b/${entry.name}`);
-        },
+      await t.step(entry.name, async () => {
+        const buf = await Deno.readFile(join(SUITE_DIR, "b", entry.name));
+        // A decoder must never hard-crash on bad input: either decode to a self-consistent
+        // buffer, or throw a catchable Error. Pixel output on broken input is not asserted.
+        try {
+          const r = decode(buf);
+          assert(Number.isInteger(r.width) && r.width >= 0);
+          assert(Number.isInteger(r.height) && r.height >= 0);
+          assertEquals(r.data.length, r.width * r.height * r.channels);
+        } catch (err) {
+          assert(err instanceof Error);
+        }
       });
     }
   });

@@ -7,11 +7,10 @@
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
-import pixelmatch from "npm:pixelmatch@7";
-import { type Color, decode, encode, type EncodeOptions } from "../../src/mod.ts";
-import { readHeader } from "../../src/decode/header.ts";
-import { extractPalette, type FlatPalette } from "../../src/decode/palette.ts";
-import { SUITE_DIR, toRgba } from "../_utils.ts";
+import { type Color, decode, encode, type EncodeOptions } from "../src/mod.ts";
+import { readHeader } from "../src/decode/header.ts";
+import { extractPalette, type FlatPalette } from "../src/decode/palette.ts";
+import { assertPixelsMatch, SUITE_DIR } from "./_utils.ts";
 
 /** Converts a FlatPalette back to Color[] for encode compatibility. */
 function toColorArray(pal: FlatPalette): Color[] {
@@ -89,74 +88,25 @@ async function runTest(filename: string) {
     assertEquals(encodedPalette, encodeOptions.palette, "Palette mismatch");
   }
 
-  // 6. Roundtrip comparison: decode encoded BMP and compare pixels
-  const encodedRaw = decode(encoded);
-
-  const diff = pixelmatch(
-    toRgba(raw.data, raw.channels),
-    toRgba(encodedRaw.data, encodedRaw.channels),
-    undefined,
-    raw.width,
-    raw.height,
-  );
-  assertEquals(diff, 0, "Found different pixels");
+  // 6. Roundtrip comparison: decode the encoded BMP and compare pixels
+  assertPixelsMatch(raw, decode(encoded));
 }
 
+// Representative files for each encodable format. The other g/ files are omitted as redundant
+// variants of these — except pal8os2.bmp, whose OS/2 header the encoder cannot reproduce.
+const CASES: Record<string, string[]> = {
+  Paletted: ["pal1.bmp", "pal1bg.bmp", "pal4.bmp", "pal4gs.bmp", "pal8.bmp", "pal8gs.bmp"],
+  Truecolor: ["rgb16.bmp", "rgb24.bmp", "rgb32.bmp"],
+  Bitfields: ["rgb16bfdef.bmp", "rgb32bfdef.bmp"],
+  Compression: ["pal4rle.bmp", "pal8rle.bmp"],
+  "Header types": ["pal8v4.bmp", "pal8v5.bmp"],
+  "Edge cases": ["pal8topdown.bmp"],
+};
+
 Deno.test("Encode", async (t) => {
-  await t.step("Paletted", async (t) => {
-    await t.step("1-bit", async (t) => {
-      await t.step("pal1.bmp", () => runTest("pal1.bmp"));
-      await t.step("pal1bg.bmp", () => runTest("pal1bg.bmp"));
+  for (const [group, files] of Object.entries(CASES)) {
+    await t.step(group, async (t) => {
+      for (const file of files) await t.step(file, () => runTest(file));
     });
-
-    await t.step("4-bit", async (t) => {
-      await t.step("pal4.bmp", () => runTest("pal4.bmp"));
-      await t.step("pal4gs.bmp", () => runTest("pal4gs.bmp"));
-    });
-
-    await t.step("8-bit", async (t) => {
-      await t.step("pal8.bmp", () => runTest("pal8.bmp"));
-      await t.step("pal8gs.bmp", () => runTest("pal8gs.bmp"));
-    });
-  });
-
-  await t.step("Truecolor", async (t) => {
-    await t.step("16-bit", async (t) => {
-      await t.step("rgb16.bmp", () => runTest("rgb16.bmp"));
-      await t.step("rgb16bfdef.bmp", () => runTest("rgb16bfdef.bmp"));
-    });
-
-    await t.step("24-bit", async (t) => {
-      await t.step("rgb24.bmp", () => runTest("rgb24.bmp"));
-    });
-
-    await t.step("32-bit", async (t) => {
-      await t.step("rgb32.bmp", () => runTest("rgb32.bmp"));
-      await t.step("rgb32bfdef.bmp", () => runTest("rgb32bfdef.bmp"));
-    });
-  });
-
-  await t.step("Bitfields", async (t) => {
-    await t.step("16-bit", async (t) => {
-      await t.step("rgb16bfdef.bmp", () => runTest("rgb16bfdef.bmp"));
-    });
-
-    await t.step("32-bit", async (t) => {
-      await t.step("rgb32bfdef.bmp", () => runTest("rgb32bfdef.bmp"));
-    });
-  });
-
-  await t.step("Compression", async (t) => {
-    await t.step("RLE4", () => runTest("pal4rle.bmp"));
-    await t.step("RLE8", () => runTest("pal8rle.bmp"));
-  });
-
-  await t.step("Header types", async (t) => {
-    await t.step("v4", () => runTest("pal8v4.bmp"));
-    await t.step("v5", () => runTest("pal8v5.bmp"));
-  });
-
-  await t.step("Edge cases", async (t) => {
-    await t.step("Top-down", () => runTest("pal8topdown.bmp"));
-  });
+  }
 });
