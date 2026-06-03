@@ -1,8 +1,9 @@
 /**
  * Color quantization for reducing images to a limited palette.
  *
- * Uses the Median Cut algorithm to find the best N colors for an image,
- * and a K-d tree for fast nearest-neighbor lookup when mapping pixels to palette indices.
+ * Uses Wu's moment-based algorithm to find the best N colors for an image (a single
+ * histogram pass with no sorting), and a K-d tree for fast nearest-neighbor lookup
+ * when mapping pixels to palette indices.
  *
  * @module
  */
@@ -128,99 +129,227 @@ class KdTree {
 }
 
 // ============================================================
-// Median Cut algorithm
+// Wu's moment-based color quantizer
 // ============================================================
 
-/** A box of colors in RGB space, used by the Median Cut algorithm. */
-interface ColorBox {
-  /** Packed RGB values: (r << 16) | (g << 8) | b. */
-  colors: number[];
-  /** Minimum red value in this box. */
-  rMin: number;
-  /** Maximum red value in this box. */
-  rMax: number;
-  /** Minimum green value in this box. */
-  gMin: number;
-  /** Maximum green value in this box. */
-  gMax: number;
-  /** Minimum blue value in this box. */
-  bMin: number;
-  /** Maximum blue value in this box. */
-  bMax: number;
+/** Levels per channel (32) plus one guard slot used by the cumulative-moment integration. */
+const WU_SIDE = 33;
+
+/** A box (axis-aligned region) in the quantized color space. */
+interface WuBox {
+  r0: number;
+  r1: number;
+  g0: number;
+  g1: number;
+  b0: number;
+  b1: number;
+  /** Volume in histogram cells; a box of volume ≤ 1 cannot be cut further. */
+  vol: number;
 }
 
-/**
- * Create a box from a set of packed RGB colors, computing the bounding range.
- *
- * @param colors Array of packed RGB values.
- * @return Color box with computed min/max bounds.
- */
-function createColorBox(colors: number[]): ColorBox {
-  let rMin = 255, rMax = 0;
-  let gMin = 255, gMax = 0;
-  let bMin = 255, bMax = 0;
+const wuIndex = (r: number, g: number, b: number): number => (r * WU_SIDE + g) * WU_SIDE + b;
 
-  for (const packed of colors) {
-    const r = (packed >> 16) & 0xFF;
-    const g = (packed >> 8) & 0xFF;
-    const b = packed & 0xFF;
-    rMin = Math.min(rMin, r);
-    rMax = Math.max(rMax, r);
-    gMin = Math.min(gMin, g);
-    gMax = Math.max(gMax, g);
-    bMin = Math.min(bMin, b);
-    bMax = Math.max(bMax, b);
-  }
-
-  return { colors, rMin, rMax, gMin, gMax, bMin, bMax };
-}
+/** Splitting axes, encoded so they can index the moment helpers. */
+const WU_RED = 2, WU_GREEN = 1, WU_BLUE = 0;
 
 /**
- * Split a box along its longest color axis at the median.
+ * Build an optimal palette of up to `numColors` colors using Wu's algorithm.
  *
- * @param box Color box to split.
- * @return Two new color boxes.
+ * @param raw Source image (RGB or RGBA).
+ * @param numColors Target palette size.
+ * @return Array of representative colors (padded to `numColors` with black if fewer are found).
  */
-function splitColorBox(box: ColorBox): [ColorBox, ColorBox] {
-  const rRange = box.rMax - box.rMin;
-  const gRange = box.gMax - box.gMin;
-  const bRange = box.bMax - box.bMin;
+function wuQuantize(raw: RawImageData, numColors: number): Color[] {
+  const size = WU_SIDE * WU_SIDE * WU_SIDE;
+  const wt = new Float64Array(size); // pixel counts
+  const mr = new Float64Array(size); // Σ red
+  const mg = new Float64Array(size); // Σ green
+  const mb = new Float64Array(size); // Σ blue
+  const m2 = new Float64Array(size); // Σ (r² + g² + b²)
 
-  // Sort along the axis with the widest range
-  if (rRange >= gRange && rRange >= bRange) {
-    box.colors.sort((a, b) => ((a >> 16) & 0xFF) - ((b >> 16) & 0xFF));
-  } else if (gRange >= bRange) {
-    box.colors.sort((a, b) => ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF));
-  } else {
-    box.colors.sort((a, b) => (a & 0xFF) - (b & 0xFF));
+  // Histogram: bucket each pixel into a 32×32×32 grid (channel >> 3), offset by 1.
+  const { data, channels } = raw;
+  const pixelCount = raw.width * raw.height;
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * channels;
+    const r = data[o];
+    const g = channels === 1 ? r : data[o + 1];
+    const b = channels === 1 ? r : data[o + 2];
+    const k = wuIndex((r >> 3) + 1, (g >> 3) + 1, (b >> 3) + 1);
+    wt[k]++;
+    mr[k] += r;
+    mg[k] += g;
+    mb[k] += b;
+    m2[k] += r * r + g * g + b * b;
   }
 
-  const median = Math.floor(box.colors.length / 2);
-  return [
-    createColorBox(box.colors.slice(0, median)),
-    createColorBox(box.colors.slice(median)),
-  ];
-}
-
-/**
- * Compute the average color of all colors in a box.
- *
- * @param box Color box to average.
- * @return Average color.
- */
-function getAverageColor(box: ColorBox): Color {
-  let rSum = 0, gSum = 0, bSum = 0;
-  for (const packed of box.colors) {
-    rSum += (packed >> 16) & 0xFF;
-    gSum += (packed >> 8) & 0xFF;
-    bSum += packed & 0xFF;
+  // Integrate into cumulative moments so any box sum is an O(1) 8-corner lookup.
+  for (const v of [wt, mr, mg, mb, m2]) {
+    const area = new Float64Array(WU_SIDE);
+    for (let r = 1; r < WU_SIDE; r++) {
+      area.fill(0);
+      for (let g = 1; g < WU_SIDE; g++) {
+        let line = 0;
+        for (let b = 1; b < WU_SIDE; b++) {
+          line += v[wuIndex(r, g, b)];
+          area[b] += line;
+          v[wuIndex(r, g, b)] = v[wuIndex(r - 1, g, b)] + area[b];
+        }
+      }
+    }
   }
-  const n = box.colors.length;
-  return {
-    red: Math.round(rSum / n),
-    green: Math.round(gSum / n),
-    blue: Math.round(bSum / n),
+
+  // Total moment over a box, via inclusion-exclusion of its 8 corners.
+  const vol = (c: WuBox, m: Float64Array): number =>
+    m[wuIndex(c.r1, c.g1, c.b1)] - m[wuIndex(c.r1, c.g1, c.b0)] -
+    m[wuIndex(c.r1, c.g0, c.b1)] + m[wuIndex(c.r1, c.g0, c.b0)] -
+    m[wuIndex(c.r0, c.g1, c.b1)] + m[wuIndex(c.r0, c.g1, c.b0)] +
+    m[wuIndex(c.r0, c.g0, c.b1)] - m[wuIndex(c.r0, c.g0, c.b0)];
+
+  // Marginal moment over the bottom face of a box, perpendicular to `dir`.
+  const bottom = (c: WuBox, dir: number, m: Float64Array): number => {
+    if (dir === WU_RED) {
+      return -m[wuIndex(c.r0, c.g1, c.b1)] + m[wuIndex(c.r0, c.g1, c.b0)] +
+        m[wuIndex(c.r0, c.g0, c.b1)] - m[wuIndex(c.r0, c.g0, c.b0)];
+    }
+    if (dir === WU_GREEN) {
+      return -m[wuIndex(c.r1, c.g0, c.b1)] + m[wuIndex(c.r1, c.g0, c.b0)] +
+        m[wuIndex(c.r0, c.g0, c.b1)] - m[wuIndex(c.r0, c.g0, c.b0)];
+    }
+    return -m[wuIndex(c.r1, c.g1, c.b0)] + m[wuIndex(c.r1, c.g0, c.b0)] +
+      m[wuIndex(c.r0, c.g1, c.b0)] - m[wuIndex(c.r0, c.g0, c.b0)];
   };
+
+  // Marginal moment over the face at position `pos` along `dir`.
+  const top = (c: WuBox, dir: number, pos: number, m: Float64Array): number => {
+    if (dir === WU_RED) {
+      return m[wuIndex(pos, c.g1, c.b1)] - m[wuIndex(pos, c.g1, c.b0)] -
+        m[wuIndex(pos, c.g0, c.b1)] + m[wuIndex(pos, c.g0, c.b0)];
+    }
+    if (dir === WU_GREEN) {
+      return m[wuIndex(c.r1, pos, c.b1)] - m[wuIndex(c.r1, pos, c.b0)] -
+        m[wuIndex(c.r0, pos, c.b1)] + m[wuIndex(c.r0, pos, c.b0)];
+    }
+    return m[wuIndex(c.r1, c.g1, pos)] - m[wuIndex(c.r1, c.g0, pos)] -
+      m[wuIndex(c.r0, c.g1, pos)] + m[wuIndex(c.r0, c.g0, pos)];
+  };
+
+  // Weighted variance of a box (the quantity each cut tries to reduce).
+  const variance = (c: WuBox): number => {
+    const dr = vol(c, mr), dg = vol(c, mg), db = vol(c, mb), n = vol(c, wt);
+    if (n === 0) return 0;
+    return vol(c, m2) - (dr * dr + dg * dg + db * db) / n;
+  };
+
+  // Find the position along `dir` that maximizes the combined between-box sum-of-squares.
+  const maximize = (c: WuBox, dir: number, first: number, last: number, whole: number[]): [number, number] => {
+    const baseR = bottom(c, dir, mr),
+      baseG = bottom(c, dir, mg),
+      baseB = bottom(c, dir, mb),
+      baseW = bottom(c, dir, wt);
+    let max = 0, cutAt = -1;
+    for (let i = first; i < last; i++) {
+      let hr = baseR + top(c, dir, i, mr);
+      let hg = baseG + top(c, dir, i, mg);
+      let hb = baseB + top(c, dir, i, mb);
+      let hw = baseW + top(c, dir, i, wt);
+      if (hw === 0) continue; // empty lower box
+      let t = (hr * hr + hg * hg + hb * hb) / hw;
+      hr = whole[0] - hr;
+      hg = whole[1] - hg;
+      hb = whole[2] - hb;
+      hw = whole[3] - hw;
+      if (hw === 0) continue; // empty upper box
+      t += (hr * hr + hg * hg + hb * hb) / hw;
+      if (t > max) {
+        max = t;
+        cutAt = i;
+      }
+    }
+    return [max, cutAt];
+  };
+
+  // Cut box `s1` into `s1` and `s2` along the best axis; returns false if it cannot be split.
+  const cut = (s1: WuBox, s2: WuBox): boolean => {
+    const whole = [vol(s1, mr), vol(s1, mg), vol(s1, mb), vol(s1, wt)];
+    const [mxr, cr] = maximize(s1, WU_RED, s1.r0 + 1, s1.r1, whole);
+    const [mxg, cg] = maximize(s1, WU_GREEN, s1.g0 + 1, s1.g1, whole);
+    const [mxb, cb] = maximize(s1, WU_BLUE, s1.b0 + 1, s1.b1, whole);
+
+    let dir: number;
+    if (mxr >= mxg && mxr >= mxb) {
+      dir = WU_RED;
+      if (cr < 0) return false; // box has zero range on every axis
+    } else if (mxg >= mxr && mxg >= mxb) {
+      dir = WU_GREEN;
+    } else {
+      dir = WU_BLUE;
+    }
+
+    s2.r1 = s1.r1;
+    s2.g1 = s1.g1;
+    s2.b1 = s1.b1;
+    if (dir === WU_RED) {
+      s2.r0 = s1.r1 = cr;
+      s2.g0 = s1.g0;
+      s2.b0 = s1.b0;
+    } else if (dir === WU_GREEN) {
+      s2.g0 = s1.g1 = cg;
+      s2.r0 = s1.r0;
+      s2.b0 = s1.b0;
+    } else {
+      s2.b0 = s1.b1 = cb;
+      s2.r0 = s1.r0;
+      s2.g0 = s1.g0;
+    }
+    s1.vol = (s1.r1 - s1.r0) * (s1.g1 - s1.g0) * (s1.b1 - s1.b0);
+    s2.vol = (s2.r1 - s2.r0) * (s2.g1 - s2.g0) * (s2.b1 - s2.b0);
+    return true;
+  };
+
+  // Greedily split the box with the largest variance until `numColors` boxes exist.
+  const boxes: WuBox[] = Array.from(
+    { length: numColors },
+    () => ({ r0: 0, r1: 0, g0: 0, g1: 0, b0: 0, b1: 0, vol: 0 }),
+  );
+  boxes[0] = { r0: 0, r1: WU_SIDE - 1, g0: 0, g1: WU_SIDE - 1, b0: 0, b1: WU_SIDE - 1, vol: 0 };
+  const vv = new Float64Array(numColors);
+  let count = 1;
+  let next = 0;
+  for (let i = 1; i < numColors; i++) {
+    if (cut(boxes[next], boxes[i])) {
+      vv[next] = boxes[next].vol > 1 ? variance(boxes[next]) : 0;
+      vv[i] = boxes[i].vol > 1 ? variance(boxes[i]) : 0;
+    } else {
+      vv[next] = 0; // cannot cut this box; retry the slot with the next-best box
+      i--;
+    }
+    next = 0;
+    let maxVar = vv[0];
+    for (let k = 1; k <= i; k++) {
+      if (vv[k] > maxVar) {
+        maxVar = vv[k];
+        next = k;
+      }
+    }
+    count = i + 1;
+    if (maxVar <= 0) break; // no box can be split usefully
+  }
+
+  // Representative color of each box = its weighted mean (full-resolution, not binned).
+  const palette: Color[] = [];
+  for (let k = 0; k < count; k++) {
+    const w = vol(boxes[k], wt);
+    if (w > 0) {
+      palette.push({
+        red: Math.round(vol(boxes[k], mr) / w),
+        green: Math.round(vol(boxes[k], mg) / w),
+        blue: Math.round(vol(boxes[k], mb) / w),
+      });
+    }
+  }
+  while (palette.length < numColors) palette.push({ red: 0, green: 0, blue: 0 });
+  return palette;
 }
 
 // ============================================================
@@ -246,60 +375,42 @@ export function generateGrayscalePalette(numColors: number): Color[] {
 }
 
 /**
- * Generate an optimal color palette using the Median Cut algorithm.
+ * Generate an optimal color palette using Wu's moment-based quantizer.
  *
  * @param raw Source image (RGB or RGBA).
  * @param numColors Target palette size (e.g. 2, 16, 256).
  * @return Array of representative colors.
  */
 export function generatePalette(raw: RawImageData, numColors: number): Color[] {
-  // Extract unique colors as packed integers
-  const uniqueSet = new Set<number>();
-  for (let i = 0; i < raw.data.length; i += raw.channels) {
-    const r = raw.data[i];
-    const g = raw.data[i + 1];
-    const b = raw.data[i + 2];
-    uniqueSet.add((r << 16) | (g << 8) | b);
+  // Fast path: if the image has no more than `numColors` distinct colors, use them exactly.
+  // Scanning stops as soon as the count exceeds the target, so a high-color image pays almost nothing.
+  const { data, channels } = raw;
+  const pixelCount = raw.width * raw.height;
+  const unique = new Set<number>();
+  let withinTarget = true;
+  for (let i = 0; i < pixelCount; i++) {
+    const o = i * channels;
+    const r = data[o];
+    const g = channels === 1 ? r : data[o + 1];
+    const b = channels === 1 ? r : data[o + 2];
+    unique.add((r << 16) | (g << 8) | b);
+    if (unique.size > numColors) {
+      withinTarget = false;
+      break;
+    }
   }
-  const uniqueColors = Array.from(uniqueSet);
 
-  // If fewer unique colors than target, use them directly
-  if (uniqueColors.length <= numColors) {
-    const palette = uniqueColors.map((packed) => ({
+  if (withinTarget) {
+    const palette = Array.from(unique, (packed) => ({
       red: (packed >> 16) & 0xFF,
       green: (packed >> 8) & 0xFF,
       blue: packed & 0xFF,
     }));
-    while (palette.length < numColors) {
-      palette.push({ red: 0, green: 0, blue: 0 });
-    }
+    while (palette.length < numColors) palette.push({ red: 0, green: 0, blue: 0 });
     return palette;
   }
 
-  // Median Cut: repeatedly split the largest box until we have enough
-  const boxes = [createColorBox(uniqueColors)];
-
-  while (boxes.length < numColors) {
-    // Find the box with the widest color range
-    let maxRange = -1;
-    let maxIndex = 0;
-    for (let i = 0; i < boxes.length; i++) {
-      const range = Math.max(
-        boxes[i].rMax - boxes[i].rMin,
-        boxes[i].gMax - boxes[i].gMin,
-        boxes[i].bMax - boxes[i].bMin,
-      );
-      if (range > maxRange) {
-        maxRange = range;
-        maxIndex = i;
-      }
-    }
-
-    const [box1, box2] = splitColorBox(boxes[maxIndex]);
-    boxes.splice(maxIndex, 1, box1, box2);
-  }
-
-  return boxes.map(getAverageColor);
+  return wuQuantize(raw, numColors);
 }
 
 /**
