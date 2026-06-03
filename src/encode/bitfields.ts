@@ -32,10 +32,10 @@ export function encodeBitfields(
   const view = new DataView(result.buffer);
 
   // Pre-compute LUTs: for each 8-bit input value, the scaled output
-  const redLut = createScaleLut(redInfo.bits);
-  const greenLut = createScaleLut(greenInfo.bits);
-  const blueLut = createScaleLut(blueInfo.bits);
-  const alphaLut = masks.alphaMask ? createScaleLut(alphaInfo.bits) : null;
+  const redLut = createEncodeScaleLut(redInfo.bits);
+  const greenLut = createEncodeScaleLut(greenInfo.bits);
+  const blueLut = createEncodeScaleLut(blueInfo.bits);
+  const alphaLut = masks.alphaMask ? createEncodeScaleLut(alphaInfo.bits) : null;
 
   const { data, channels } = raw;
 
@@ -72,17 +72,20 @@ export function encodeBitfields(
 }
 
 /**
- * Create a LUT that scales 8-bit values (0–255) to a target bit depth.
+ * Create a LUT that scales 8-bit values (0–255) up to a target channel bit depth.
+ *
+ * The element type widens with the channel depth so that values for channels wider
+ * than 8 bits (e.g. 10-bit in RGBA1010102) are stored without truncation.
  *
  * @param bits Target channel bit depth.
- * @return Lookup table mapping 8-bit values to scaled values.
+ * @return Lookup table mapping 8-bit values to scaled values in [0, 2^bits − 1].
  */
-function createScaleLut(bits: number): Uint8Array {
-  const lut = new Uint8Array(256);
+function createEncodeScaleLut(bits: number): Uint8Array | Uint16Array | Uint32Array {
+  const lut = bits <= 8 ? new Uint8Array(256) : bits <= 16 ? new Uint16Array(256) : new Uint32Array(256);
   if (bits === 0) return lut;
-  const max = (1 << bits) - 1;
+  const max = 2 ** bits - 1;
   for (let i = 0; i < 256; i++) {
-    lut[i] = Math.min(255, Math.round((i * max) / 255));
+    lut[i] = Math.round((i * max) / 255);
   }
   return lut;
 }
