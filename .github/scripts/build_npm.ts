@@ -9,7 +9,7 @@
  * ```
  */
 
-import { build } from "jsr:@nktkas/dtn@^1";
+import { build } from "jsr:@nktkas/dtn@^3";
 import denoJson from "../../deno.json" with { type: "json" };
 
 if (import.meta.main) {
@@ -27,6 +27,9 @@ if (import.meta.main) {
       sideEffects: false,
       engines: { node: ">=22.12.0" },
     },
-    copyFiles: ["README.md", "LICENSE"],
   });
+  await Deno.remove("dist/tsconfig.json");
+
+  await Deno.copyFile("README.md", "dist/README.md");
+  await Deno.copyFile("LICENSE", "dist/LICENSE");
 }
