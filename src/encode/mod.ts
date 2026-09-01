@@ -23,7 +23,7 @@
 
 import { type BitfieldMasks, type Color, CompressionTypes, type RawImageData } from "../common.ts";
 import { encodeBitfields } from "./bitfields.ts";
-import { type HeaderType, writeHeader } from "./header.ts";
+import { headerLength, type HeaderType, writeHeader } from "./header.ts";
 import { encodeRgb } from "./rgb.ts";
 import { encodeRle4, encodeRle8 } from "./rle.ts";
 
@@ -117,8 +117,7 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
       throw new Error(`Unsupported compression: ${compression}`);
   }
 
-  // Build header + pixel data
-  const header = writeHeader({
+  const params = {
     width: raw.width,
     height: raw.height,
     bitsPerPixel,
@@ -128,11 +127,12 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
     headerType,
     isTopDown,
     bitfields,
-  });
+  };
 
-  const result = new Uint8Array(header.length + pixelData.length);
-  result.set(header, 0);
-  result.set(pixelData, header.length);
+  const headerSize = headerLength(params);
+  const result = new Uint8Array(headerSize + pixelData.length);
+  writeHeader(result, params);
+  result.set(pixelData, headerSize);
 
   return result;
 }

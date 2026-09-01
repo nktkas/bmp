@@ -36,6 +36,7 @@ const libs: BenchLib[] = [
       "BI_RGB: 32 bit",
       "BI_RLE: 4 bit",
       "BI_RLE: 8 bit",
+      "BI_RLE: 8 bit (grayscale)",
       "BI_BITFIELDS: 32 bit",
     ],
   },

@@ -9,6 +9,7 @@
  */
 
 import type { Color, RawImageData } from "../common.ts";
+import { grayscaleToIndices } from "./pixel.ts";
 import { convertToIndexed, generateGrayscalePalette, generatePalette } from "./quantize.ts";
 
 /** Result of RLE encoding: compressed pixel data and the palette used. */
@@ -120,33 +121,20 @@ export function encodeRle4(raw: RawImageData, palette?: Color[]): EncodedRleData
  */
 function encodeRle(
   raw: RawImageData,
-  numColors: number,
+  numColors: 16 | 256,
   callbacks: RleEncodeCallbacks,
   palette?: Color[],
 ): EncodedRleData {
-  const finalPalette = preparePalette(raw, palette, numColors);
-  const indices = convertToIndexed(raw, finalPalette);
+  const custom = palette && palette.length >= numColors ? palette.slice(0, numColors) : undefined;
+  const grayscale = custom === undefined && raw.channels === 1;
+  const finalPalette = custom ??
+    (grayscale ? generateGrayscalePalette(numColors) : generatePalette(raw, numColors));
+
+  // A generated grayscale palette is an even ramp, so an index is a scaled pixel value
+  // and the nearest-color search would only rediscover that for every pixel.
+  const indices = grayscale ? grayscaleToIndices(raw, numColors) : convertToIndexed(raw, finalPalette);
   const pixelData = encodeRlePixels(indices, raw.width, raw.height, callbacks);
   return { pixelData, palette: finalPalette };
-}
-
-/**
- * Resolve the palette: use provided one if large enough, otherwise auto-generate.
- *
- * @param raw Source pixel data.
- * @param palette Custom palette or undefined.
- * @param numColors Required palette size.
- * @return Resolved palette.
- */
-function preparePalette(
-  raw: RawImageData,
-  palette: Color[] | undefined,
-  numColors: number,
-): Color[] {
-  if (palette && palette.length >= numColors) {
-    return palette.slice(0, numColors);
-  }
-  return raw.channels === 1 ? generateGrayscalePalette(numColors) : generatePalette(raw, numColors);
 }
 
 /**

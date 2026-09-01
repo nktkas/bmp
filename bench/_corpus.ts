@@ -5,6 +5,7 @@
  * - {@link genFlatRich} — long horizontal color segments: thousands of distinct colors (drives
  *   the quantizer) with long runs (drives RLE run-fill).
  * - {@link genGray} — smooth single-channel field for the grayscale indexed paths.
+ *   Its gradient rarely repeats a value twice in a row, so it is also what drives RLE absolute mode.
  *
  * Everything is seeded ({@link mulberry32}), so the corpus is byte-for-byte reproducible.
  *
@@ -78,8 +79,8 @@ export function genPhoto(width: number, height: number, seed = 0x1234): RawImage
  * Flat-but-colorful RGB image: each row is split into horizontal segments (mostly long, some short),
  * each filled with a smoothly varying color.
  *
- * Long runs exercise RLE run-fill; the many distinct segment colors force the quantizer;
- * the short segments keep the absolute/single-pixel RLE paths exercised.
+ * Long runs exercise RLE run-fill and the many distinct segment colors force the quantizer.
+ * Even the short segments end up encoded as runs, so RLE absolute mode is left to {@linkcode genGray}.
  *
  * @param width Image width.
  * @param height Image height.
@@ -112,6 +113,9 @@ export function genFlatRich(width: number, height: number, seed = 0x55AA): RawIm
 
 /**
  * Smooth single-channel (grayscale) image with grain, for the grayscale indexed paths.
+ *
+ * Neighbouring pixels almost always differ, so an RLE encoder falls back to absolute mode for nearly every pixel.
+ * That is the opposite of {@linkcode genFlatRich}.
  *
  * @param width Image width.
  * @param height Image height.
@@ -160,6 +164,7 @@ export const PERF_CASES = [
   { name: "BI_RGB: 32 bit", gen: genPhoto, bitsPerPixel: 32, compression: 0 },
   { name: "BI_RLE: 4 bit", gen: genFlatRich, bitsPerPixel: 4, compression: 2 },
   { name: "BI_RLE: 8 bit", gen: genFlatRich, bitsPerPixel: 8, compression: 1 },
+  { name: "BI_RLE: 8 bit (grayscale)", gen: genGray, bitsPerPixel: 8, compression: 1 },
   { name: "BI_BITFIELDS: 16 bit", gen: genPhoto, bitsPerPixel: 16, compression: 3 },
   { name: "BI_BITFIELDS: 32 bit", gen: genPhoto, bitsPerPixel: 32, compression: 3 },
 ] as const satisfies readonly PerfCase[];

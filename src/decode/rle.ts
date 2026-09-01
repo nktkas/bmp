@@ -13,6 +13,12 @@ import { type BmpHeader, CompressionTypes, getImageLayout, type RawImageData } f
 import { extractPalette } from "./palette.ts";
 
 /**
+ * Run length from which `Uint8Array.prototype.fill` overtakes a byte loop.
+ * Measured on V8 15.0; below it the call overhead costs more than the loop it replaces.
+ */
+const MEMSET_RUN = 40;
+
+/**
  * Decode an RLE-compressed BMP image to raw pixel data.
  *
  * @param bmp Complete BMP file contents.
@@ -51,13 +57,26 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const yStep = isTopDown ? 1 : -1;
 
   if (channels === 1) {
+    // An identity palette maps every index to itself, so an absolute block is a plain copy.
+    let identityPalette = true;
+    for (let k = 0; k < palR.length; k++) {
+      if (palR[k] !== k) {
+        identityPalette = false;
+        break;
+      }
+    }
+
     while (i < bmp.length - 1) {
       const count = bmp[i++];
       if (count > 0) {
         // Encoded: repeat one index across the run
         const v = palR[bmp[i++]];
-        let pos = y * absWidth + x;
-        for (let j = 0; j < count; j++) output[pos++] = v;
+        const pos = y * absWidth + x;
+        if (count >= MEMSET_RUN && pos >= 0 && pos + count <= output.length) {
+          output.fill(v, pos, pos + count);
+        } else {
+          for (let j = 0, p = pos; j < count; j++) output[p++] = v;
+        }
         x += count;
       } else {
         const escape = bmp[i++];
@@ -73,8 +92,14 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
             y += bmp[i++] * yStep;
             break;
           default: { // Absolute: `escape` uncompressed indices
-            let pos = y * absWidth + x;
-            for (let j = 0; j < escape; j++) output[pos++] = palR[bmp[i++]];
+            const pos = y * absWidth + x;
+            if (identityPalette && pos >= 0 && pos + escape <= output.length) {
+              output.set(bmp.subarray(i, i + escape), pos);
+              i += escape;
+            } else {
+              let p = pos;
+              for (let j = 0; j < escape; j++) output[p++] = palR[bmp[i++]];
+            }
             if (escape & 1) i++; // Word-align
             x += escape;
           }
@@ -82,6 +107,9 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
       }
     }
   } else {
+    // Runs go out through a DataView because a Uint32Array would follow the host byte order.
+    const view = new DataView(output.buffer);
+
     while (i < bmp.length - 1) {
       const count = bmp[i++];
       if (count > 0) {
@@ -89,10 +117,20 @@ function decodeRle8(bmp: Uint8Array, header: BmpHeader): RawImageData {
         const idx = bmp[i++];
         const r = palR[idx], g = palG[idx], b = palB[idx];
         let pos = (y * absWidth + x) * 3;
-        for (let j = 0; j < count; j++) {
-          output[pos++] = r;
-          output[pos++] = g;
-          output[pos++] = b;
+        if (pos >= 0 && pos + count * 3 <= output.length) {
+          // Each store writes the triplet plus a spare byte the next store overwrites,
+          // so the last pixel is written by hand and nothing lands past the run.
+          const triplet = (r | (g << 8) | (b << 16) | (r << 24)) >>> 0;
+          for (let j = count - 1; j > 0; j--, pos += 3) view.setUint32(pos, triplet, true);
+          output[pos] = r;
+          output[pos + 1] = g;
+          output[pos + 2] = b;
+        } else {
+          for (let j = 0; j < count; j++) {
+            output[pos++] = r;
+            output[pos++] = g;
+            output[pos++] = b;
+          }
         }
         x += count;
       } else {
@@ -191,6 +229,9 @@ function decodeRle4(bmp: Uint8Array, header: BmpHeader): RawImageData {
       }
     }
   } else {
+    // Runs go out through a DataView because a Uint32Array would follow the host byte order.
+    const view = new DataView(output.buffer);
+
     while (i < bmp.length - 1) {
       const count = bmp[i++];
       if (count > 0) {
@@ -200,15 +241,34 @@ function decodeRle4(bmp: Uint8Array, header: BmpHeader): RawImageData {
         const r1 = palR[idx1], g1 = palG[idx1], b1 = palB[idx1];
         const r2 = palR[idx2], g2 = palG[idx2], b2 = palB[idx2];
         let pos = (y * absWidth + x) * 3;
-        for (let j = 0; j < count; j++) {
-          if (j & 1) {
-            output[pos++] = r2;
-            output[pos++] = g2;
-            output[pos++] = b2;
+        if (pos >= 0 && pos + count * 3 <= output.length) {
+          // Each store writes one pixel plus a spare byte the next store overwrites,
+          // so the last pixel is written by hand and nothing lands past the run.
+          const first = (r1 | (g1 << 8) | (b1 << 16) | (r2 << 24)) >>> 0;
+          const second = (r2 | (g2 << 8) | (b2 << 16) | (r1 << 24)) >>> 0;
+          for (let j = count - 1; j > 0; j--, pos += 3) {
+            view.setUint32(pos, (count - 1 - j) & 1 ? second : first, true);
+          }
+          if ((count - 1) & 1) {
+            output[pos] = r2;
+            output[pos + 1] = g2;
+            output[pos + 2] = b2;
           } else {
-            output[pos++] = r1;
-            output[pos++] = g1;
-            output[pos++] = b1;
+            output[pos] = r1;
+            output[pos + 1] = g1;
+            output[pos + 2] = b1;
+          }
+        } else {
+          for (let j = 0; j < count; j++) {
+            if (j & 1) {
+              output[pos++] = r2;
+              output[pos++] = g2;
+              output[pos++] = b2;
+            } else {
+              output[pos++] = r1;
+              output[pos++] = g1;
+              output[pos++] = b1;
+            }
           }
         }
         x += count;
@@ -274,6 +334,9 @@ function decodeRle24(bmp: Uint8Array, header: BmpHeader): RawImageData {
   let i = dataOffset;
   const yStep = isTopDown ? 1 : -1;
 
+  // Runs go out through a DataView because a Uint32Array would follow the host byte order.
+  const view = new DataView(output.buffer);
+
   while (i < bmp.length - 1) {
     const count = bmp[i++];
     if (count > 0) {
@@ -282,10 +345,20 @@ function decodeRle24(bmp: Uint8Array, header: BmpHeader): RawImageData {
       const g = bmp[i++];
       const r = bmp[i++];
       let pos = (y * absWidth + x) * 3;
-      for (let j = 0; j < count; j++) {
-        output[pos++] = r;
-        output[pos++] = g;
-        output[pos++] = b;
+      if (pos >= 0 && pos + count * 3 <= output.length) {
+        // Each store writes the triplet plus a spare byte the next store overwrites,
+        // so the last pixel is written by hand and nothing lands past the run.
+        const triplet = (r | (g << 8) | (b << 16) | (r << 24)) >>> 0;
+        for (let j = count - 1; j > 0; j--, pos += 3) view.setUint32(pos, triplet, true);
+        output[pos] = r;
+        output[pos + 1] = g;
+        output[pos + 2] = b;
+      } else {
+        for (let j = 0; j < count; j++) {
+          output[pos++] = r;
+          output[pos++] = g;
+          output[pos++] = b;
+        }
       }
       x += count;
     } else {

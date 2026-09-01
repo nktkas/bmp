@@ -361,55 +361,14 @@ export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData 
   const channels = palette.isGrayscale ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
-  // Decompress Huffman data into a flat array of 0/1 palette indices
-  const pixels = decompressHuffman(bmp, dataOffset, absWidth, absHeight);
-
-  // Map palette indices to output pixels, handling row order
-  for (let y = 0; y < absHeight; y++) {
-    const srcY = isTopDown ? y : absHeight - 1 - y;
-    let srcOffset = srcY * absWidth;
-    let dstOffset = y * absWidth * channels;
-
-    if (channels === 1) {
-      for (let x = 0; x < absWidth; x++) {
-        output[dstOffset++] = palR[pixels[srcOffset++]];
-      }
-    } else {
-      for (let x = 0; x < absWidth; x++) {
-        const idx = pixels[srcOffset++];
-        output[dstOffset++] = palR[idx]; // R
-        output[dstOffset++] = palG[idx]; // G
-        output[dstOffset++] = palB[idx]; // B
-      }
-    }
-  }
-
-  return { width: absWidth, height: absHeight, channels, data: output };
-}
-
-/**
- * Decompress Modified Huffman data into a flat array of 0/1 palette indices.
- *
- * @param bmp Complete BMP file contents.
- * @param dataOffset Byte offset to the start of compressed data.
- * @param absWidth Absolute image width in pixels.
- * @param absHeight Absolute image height in pixels.
- * @return Flat array of 0/1 palette indices.
- */
-function decompressHuffman(
-  bmp: Uint8Array,
-  dataOffset: number,
-  absWidth: number,
-  absHeight: number,
-): Uint8Array {
-  const pixels = new Uint8Array(absWidth * absHeight);
   const reader = new BitReader(bmp, dataOffset);
-  let pixelPos = 0;
 
   // Skip initial EOL marker if present
   if (reader.isEol()) reader.skip(12);
 
   for (let row = 0; row < absHeight; row++) {
+    // Rows arrive in file order, so a bottom-up image fills the output from the last row back.
+    const rowStart = (isTopDown ? row : absHeight - 1 - row) * absWidth * channels;
     let col = 0;
     let isWhite = true; // Each scan line starts with a white run
 
@@ -417,16 +376,14 @@ function decompressHuffman(
       const runLength = decodeRun(reader, isWhite);
       if (runLength < 0) break;
 
-      // Fill pixels with the current color (0 = white, 1 = black)
-      const colorValue = isWhite ? 0 : 1;
       const end = Math.min(col + runLength, absWidth);
-      while (col < end) {
-        pixels[pixelPos++] = colorValue;
-        col++;
-      }
+      writeRun(output, rowStart, col, end, channels, isWhite ? 0 : 1, palR, palG, palB);
+      col = end;
 
       isWhite = !isWhite;
     }
+    // A line that ran out of codes keeps the color a full white run would have given it.
+    if (col < absWidth) writeRun(output, rowStart, col, absWidth, channels, 0, palR, palG, palB);
 
     // Scan forward to the next EOL marker to align to the next row
     while (reader.hasAtLeast(12)) {
@@ -438,7 +395,43 @@ function decompressHuffman(
     }
   }
 
-  return pixels;
+  return { width: absWidth, height: absHeight, channels, data: output };
+}
+
+/**
+ * Paint one run of a scan line in the palette color it stands for.
+ *
+ * @param output Destination pixel buffer.
+ * @param rowStart Byte offset of the scan line within `output`.
+ * @param from First pixel of the run within the scan line.
+ * @param to One past the last pixel of the run.
+ * @param channels Number of output channels: 1 or 3.
+ * @param index Palette index the run stands for: `0` for white, `1` for black.
+ * @param palR Red channel of the palette.
+ * @param palG Green channel of the palette.
+ * @param palB Blue channel of the palette.
+ */
+function writeRun(
+  output: Uint8Array,
+  rowStart: number,
+  from: number,
+  to: number,
+  channels: number,
+  index: number,
+  palR: Uint8Array,
+  palG: Uint8Array,
+  palB: Uint8Array,
+): void {
+  if (channels === 1) {
+    output.fill(palR[index], rowStart + from, rowStart + to);
+    return;
+  }
+  const r = palR[index], g = palG[index], b = palB[index];
+  for (let pos = rowStart + from * 3, stop = rowStart + to * 3; pos < stop;) {
+    output[pos++] = r;
+    output[pos++] = g;
+    output[pos++] = b;
+  }
 }
 
 /**

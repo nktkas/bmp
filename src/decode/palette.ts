@@ -47,11 +47,12 @@ export function extractPalette(bmp: Uint8Array, header: BmpHeader): FlatPalette 
     maxColors,
   );
 
-  // Read palette entries into flat arrays (stored in BGR order in the file)
-  // Uint8Array is pre-zeroed, so unused entries are already black
-  const red = new Uint8Array(maxColors);
-  const green = new Uint8Array(maxColors);
-  const blue = new Uint8Array(maxColors);
+  // Palette entries are stored in BGR order, and Uint8Array is pre-zeroed so unused ones stay black.
+  // The three channels share one allocation because a typed array costs about the same whatever its size.
+  const channels = new Uint8Array(maxColors * 3);
+  const red = channels.subarray(0, maxColors);
+  const green = channels.subarray(maxColors, maxColors * 2);
+  const blue = channels.subarray(maxColors * 2);
   let isGrayscale = true;
 
   for (let i = 0; i < colorCount; i++) {

@@ -190,25 +190,43 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
       }
     }
   } else {
-    // 2-bit: generic bit unpacking
-    const pixelsPerByte = 8 / bitsPerPixel;
-    const indexMask = (1 << bitsPerPixel) - 1;
+    // 2-bit: four pixels per byte, most significant pair first
+    const fullBytes = absWidth >> 2;
+    const remainder = absWidth & 3;
 
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : absHeight - 1 - y;
       const srcRowStart = dataOffset + srcY * stride;
       let dstOffset = y * absWidth * channels;
-      let byteIndex = 0;
 
-      for (let x = 0; x < absWidth;) {
-        const byte = bmp[srcRowStart + byteIndex++];
-        const pixelsInThisByte = Math.min(pixelsPerByte, absWidth - x);
-        for (let p = 0; p < pixelsInThisByte; p++, x++) {
-          const shift = (pixelsPerByte - 1 - p) * bitsPerPixel;
-          const idx = (byte >> shift) & indexMask;
-          if (channels === 1) {
+      if (channels === 1) {
+        for (let b = 0; b < fullBytes; b++) {
+          const byte = bmp[srcRowStart + b];
+          output[dstOffset++] = palR[(byte >> 6) & 0x3];
+          output[dstOffset++] = palR[(byte >> 4) & 0x3];
+          output[dstOffset++] = palR[(byte >> 2) & 0x3];
+          output[dstOffset++] = palR[byte & 0x3];
+        }
+        if (remainder) {
+          const byte = bmp[srcRowStart + fullBytes];
+          for (let p = 0; p < remainder; p++) {
+            output[dstOffset++] = palR[(byte >> (6 - p * 2)) & 0x3];
+          }
+        }
+      } else {
+        for (let b = 0; b < fullBytes; b++) {
+          const byte = bmp[srcRowStart + b];
+          for (let p = 0; p < 4; p++) {
+            const idx = (byte >> (6 - p * 2)) & 0x3;
             output[dstOffset++] = palR[idx];
-          } else {
+            output[dstOffset++] = palG[idx];
+            output[dstOffset++] = palB[idx];
+          }
+        }
+        if (remainder) {
+          const byte = bmp[srcRowStart + fullBytes];
+          for (let p = 0; p < remainder; p++) {
+            const idx = (byte >> (6 - p * 2)) & 0x3;
             output[dstOffset++] = palR[idx];
             output[dstOffset++] = palG[idx];
             output[dstOffset++] = palB[idx];
@@ -357,33 +375,58 @@ function decode64Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const stride = calculateStride(absWidth, bitsPerPixel);
   const output = new Uint8Array(absWidth * absHeight * 4);
 
+  const { color, alpha } = fixedPointTables();
+
   for (let y = 0; y < absHeight; y++) {
     const srcY = isTopDown ? y : absHeight - 1 - y;
     let srcOffset = dataOffset + srcY * stride;
     let dstOffset = y * absWidth * 4;
 
     for (let x = 0; x < absWidth; x++, srcOffset += 8) {
-      // Read 16-bit little-endian values (stored as BGRA)
-      const b = bmp[srcOffset] | (bmp[srcOffset + 1] << 8);
-      const g = bmp[srcOffset + 2] | (bmp[srcOffset + 3] << 8);
-      const r = bmp[srcOffset + 4] | (bmp[srcOffset + 5] << 8);
-      const a = bmp[srcOffset + 6] | (bmp[srcOffset + 7] << 8);
-
-      // Sign-extend from 16-bit, then convert from s2.13 to float
-      const rf = ((r & 0x8000) ? (r | 0xFFFF0000) : r) / 0x2000;
-      const gf = ((g & 0x8000) ? (g | 0xFFFF0000) : g) / 0x2000;
-      const bf = ((b & 0x8000) ? (b | 0xFFFF0000) : b) / 0x2000;
-      const af = ((a & 0x8000) ? (a | 0xFFFF0000) : a) / 0x2000;
-
-      // Clamp to [0, 1], apply sRGB gamma to RGB (alpha stays linear)
-      output[dstOffset++] = Math.round(linearToSrgb(Math.max(0, Math.min(1, rf))) * 255);
-      output[dstOffset++] = Math.round(linearToSrgb(Math.max(0, Math.min(1, gf))) * 255);
-      output[dstOffset++] = Math.round(linearToSrgb(Math.max(0, Math.min(1, bf))) * 255);
-      output[dstOffset++] = Math.round(Math.max(0, Math.min(1, af)) * 255);
+      // Read 16-bit little-endian values (stored as BGRA), then convert through the tables
+      output[dstOffset++] = color[bmp[srcOffset + 4] | (bmp[srcOffset + 5] << 8)]; // R
+      output[dstOffset++] = color[bmp[srcOffset + 2] | (bmp[srcOffset + 3] << 8)]; // G
+      output[dstOffset++] = color[bmp[srcOffset] | (bmp[srcOffset + 1] << 8)]; // B
+      output[dstOffset++] = alpha[bmp[srcOffset + 6] | (bmp[srcOffset + 7] << 8)]; // A
     }
   }
 
   return { width: absWidth, height: absHeight, channels: 4, data: output };
+}
+
+/** Conversion tables from a raw s2.13 channel to an 8-bit value, or `null` before first use. */
+let fixedPointCache: { color: Uint8Array; alpha: Uint8Array } | null = null;
+
+/** Raw s2.13 value standing for 1.0; everything between it and the sign bit saturates there. */
+const FIXED_POINT_ONE = 0x2000;
+
+/**
+ * Tabulate the s2.13 fixed-point conversion for every 16-bit channel value.
+ *
+ * A channel is only 16 bits wide, so the whole input domain fits in a table
+ * and the sRGB gamma is evaluated once per process instead of three times per pixel.
+ * Only the values that land inside [0, 1] need the gamma: above {@linkcode FIXED_POINT_ONE} the value clamps to 1,
+ * and from the sign bit up it is negative and clamps to 0.
+ * The tables are built on the first 64bpp image and kept, since nothing else in the decoder needs them.
+ *
+ * @return Gamma-corrected values for the color channels, and linear values for alpha.
+ */
+function fixedPointTables(): { color: Uint8Array; alpha: Uint8Array } {
+  if (fixedPointCache) return fixedPointCache;
+
+  const color = new Uint8Array(65536);
+  const alpha = new Uint8Array(65536);
+  for (let raw = 0; raw <= FIXED_POINT_ONE; raw++) {
+    const value = raw / FIXED_POINT_ONE;
+    color[raw] = Math.round(linearToSrgb(value) * 255);
+    alpha[raw] = Math.round(value * 255);
+  }
+  color.fill(255, FIXED_POINT_ONE + 1, 0x8000);
+  alpha.fill(255, FIXED_POINT_ONE + 1, 0x8000);
+  // Negative values stay at the zero the arrays were allocated with.
+
+  fixedPointCache = { color, alpha };
+  return fixedPointCache;
 }
 
 /**

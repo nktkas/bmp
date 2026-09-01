@@ -12,5 +12,6 @@
   },
   "publish": {
     "exclude": ["tests/", "bench/", ".github/"]
-  }
+  },
+  "lock": false
 }
