@@ -1,15 +1,14 @@
 /**
  * Extracts the color palette (color table) from indexed BMP images.
  *
- * Indexed BMP images (1, 2, 4, 8 bits per pixel) store pixel values as
- * indices into a palette of colors located between the DIB header and pixel data.
+ * The table sits between the DIB header and the pixel data, and covers the depths 1, 2, 4 and 8.
  *
  * @module
  */
 
-import type { BmpHeader } from "../common.ts";
+import { type BmpHeader, FILE_HEADER_SIZE } from "../common.ts";
 
-/** Flat palette with pre-split channel arrays for fast indexed lookup. */
+/** A palette split into one array per channel. */
 export interface FlatPalette {
   /** Red channel values, one per palette entry. */
   red: Uint8Array;
@@ -22,24 +21,24 @@ export interface FlatPalette {
 }
 
 /**
- * Read the color palette from an indexed BMP image into flat typed arrays.
+ * Reads the color palette of an indexed BMP image into flat typed arrays.
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Flat palette arrays sized to the maximum for the bit depth,
- *          with missing entries zeroed (black).
+ *         with missing entries zeroed (black).
  */
 export function extractPalette(bmp: Uint8Array, header: BmpHeader): FlatPalette {
   const { dataOffset, headerSize, bitsPerPixel, colorsUsed } = header;
 
-  // Palette starts right after the 14-byte file header + DIB header
-  const paletteOffset = 14 + headerSize;
+  const paletteOffset = FILE_HEADER_SIZE + headerSize;
   const paletteSize = dataOffset - paletteOffset;
 
-  // Each entry is 3 bytes for CORE headers (size 12), 4 bytes otherwise
+  // Each entry is 3 bytes for CORE headers (size 12), 4 bytes otherwise.
   const bytesPerEntry = headerSize === 12 ? 3 : 4;
 
-  // Number of colors: use colorsUsed if specified, otherwise the maximum for this depth
+  // `colorsUsed` of 0 means the depth's maximum; the space up to `dataOffset` can hold fewer entries than that.
   const maxColors = 1 << bitsPerPixel;
   const colorCount = Math.min(
     colorsUsed || maxColors,
@@ -47,8 +46,7 @@ export function extractPalette(bmp: Uint8Array, header: BmpHeader): FlatPalette 
     maxColors,
   );
 
-  // Palette entries are stored in BGR order, and Uint8Array is pre-zeroed so unused ones stay black.
-  // The three channels share one allocation because a typed array costs about the same whatever its size.
+  // Palette entries are stored in BGR order.
   const channels = new Uint8Array(maxColors * 3);
   const red = channels.subarray(0, maxColors);
   const green = channels.subarray(maxColors, maxColors * 2);
@@ -57,9 +55,9 @@ export function extractPalette(bmp: Uint8Array, header: BmpHeader): FlatPalette 
 
   for (let i = 0; i < colorCount; i++) {
     const offset = paletteOffset + i * bytesPerEntry;
-    const r = bmp[offset + 2]; // R
-    const g = bmp[offset + 1]; // G
-    const b = bmp[offset]; // B
+    const r = bmp[offset + 2];
+    const g = bmp[offset + 1];
+    const b = bmp[offset];
     red[i] = r;
     green[i] = g;
     blue[i] = b;

@@ -94,56 +94,51 @@ const bmp = encode(raw);
 ```ts
 interface EncodeOptions {
   /**
-   * Bits per pixel (1, 4, 8, 16, 24, or 32).
+   * Bit depth to encode at.
    *
-   * Default: Auto-detected from input channels
-   * - channels=1 (grayscale) → 8-bit
-   * - channels=3 (RGB) → 24-bit
-   * - channels=4 (RGBA) → 32-bit
+   * @default Follows `raw.channels`: 8 for grayscale, 24 for RGB, 32 for RGBA.
    */
   bitsPerPixel?: 1 | 4 | 8 | 16 | 24 | 32;
 
   /**
-   * BMP compression method.
-   * - 0 (BI_RGB) - No compression. Raw pixel data.
-   * - 1 (BI_RLE8) - 8-bit run-length encoding. 256-color indexed only.
-   * - 2 (BI_RLE4) - 4-bit run-length encoding. 16-color indexed only.
-   * - 3 (BI_BITFIELDS) - Uncompressed with custom RGB bit masks.
-   * - 6 (BI_ALPHABITFIELDS) - Uncompressed with custom RGBA bit masks.
+   * Compression method:
+   * - `0`: BI_RGB, uncompressed.
+   * - `1`: BI_RLE8, run-length encoded, 8bpp only.
+   * - `2`: BI_RLE4, run-length encoded, 4bpp only.
+   * - `3`: BI_BITFIELDS, channel masks, 16 or 32bpp.
+   * - `6`: BI_ALPHABITFIELDS, channel masks with alpha, 32bpp only.
    *
-   * Default: 0 (BI_RGB)
+   * @default 0
    */
   compression?: 0 | 1 | 2 | 3 | 6;
 
   /**
-   * BMP header format.
-   * - "BITMAPINFOHEADER": 40 bytes. Most compatible.
-   * - "BITMAPV4HEADER": 108 bytes. Includes masks and sRGB color space.
-   * - "BITMAPV5HEADER": 124 bytes. Adds ICC profiles and rendering intent.
+   * DIB header format to write:
+   * - `BITMAPINFOHEADER` — 40 bytes, most compatible.
+   * - `BITMAPV4HEADER` — 108 bytes, includes masks and sRGB color space.
+   * - `BITMAPV5HEADER` — 124 bytes, adds ICC profile and rendering intent.
    *
-   * Default: "BITMAPINFOHEADER"
+   * @default "BITMAPINFOHEADER"
    */
-  headerType?: "BITMAPINFOHEADER" | "BITMAPV4HEADER" | "BITMAPV5HEADER";
+  headerType?: HeaderType;
 
   /**
-   * Row order.
-   * - false - bottom-up (standard BMP)
-   * - true - top-down
+   * Store rows top-down instead of bottom-up.
    *
-   * Default: false
+   * @default false
    */
   isTopDown?: boolean;
 
   /**
-   * Color palette for indexed formats (1, 4, 8-bit).
-   * If not provided, palette will be generated automatically.
+   * Palette for the indexed depths (1, 4, 8), holding at least as many colors as the depth addresses;
+   * anything past that count is dropped. Omitting it quantizes the image down to a palette of its own.
    */
   palette?: Color[];
 
   /**
-   * Bit masks for BI_BITFIELDS/BI_ALPHABITFIELDS compression.
+   * Channel masks for the two bitfield compressions.
    *
-   * Default: RGB565 for 16-bit, BGRA8888 for 32-bit.
+   * @default RGB565 at 16bpp, BGRA8888 at 32bpp.
    */
   bitfields?: BitfieldMasks;
 }
@@ -169,6 +164,38 @@ const bmp = encode(raw, { bitsPerPixel: 8 });
 //    ^^^
 //    Uint8Array([...]) containing the BMP file bytes
 ```
+
+### Errors
+
+Every failure is a `BmpError` with a `code`. An error raised outside the package is wrapped in one of these, with the
+original in `cause`.
+
+```ts
+import { BmpError, decode, extractCompressedData } from "@nktkas/bmp";
+
+const file = await Deno.readFile("image.bmp");
+
+try {
+  const raw = decode(file);
+} catch (error) {
+  if (!(error instanceof BmpError)) throw error;
+  if (error.code !== "EMBEDDED_IMAGE") throw error;
+
+  const { data, compression } = extractCompressedData(file);
+}
+```
+
+| Code                      |     Thrown by     | Meaning                                                                         |
+| ------------------------- | :---------------: | ------------------------------------------------------------------------------- |
+| `INVALID_SIGNATURE`       |     `decode`      | The bytes do not begin with a BMP file header.                                  |
+| `UNSUPPORTED_HEADER`      |     `decode`      | The DIB header size matches no BMP header version this package reads.           |
+| `UNSUPPORTED_DEPTH`       |     `decode`      | The BMP format defines no pixel layout for this depth under this compression.   |
+| `UNSUPPORTED_COMPRESSION` |     `decode`      | The compression method is one this package does not implement.                  |
+| `EMBEDDED_IMAGE`          |     `decode`      | The pixel data is a complete JPEG or PNG; `extractCompressedData` returns it.   |
+| `MALFORMED_FILE`          |     `decode`      | The file is shorter than its header declares; `cause` holds the original error. |
+| `INVALID_DATA_SIZE`       |     `encode`      | The pixel buffer length is not width × height × channels.                       |
+| `INCOMPATIBLE_OPTIONS`    |     `encode`      | The given depth, compression, row order and palette do not fit together.        |
+| `INVALID_DIMENSIONS`      | `decode`,`encode` | The dimensions are not positive, or too large to allocate a buffer for.         |
 
 ## Benchmarks
 

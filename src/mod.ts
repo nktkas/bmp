@@ -1,5 +1,14 @@
 /**
- * Root barrel — re-exports the complete public API of @nktkas/bmp.
+ * BMP image encoding and decoding.
+ *
+ * @example
+ * ```ts
+ * import { decode, encode } from "@nktkas/bmp";
+ *
+ * const raw = decode(await Deno.readFile("image.bmp"));
+ * const bmp = encode(raw, { bitsPerPixel: 8 });
+ * ```
+ *
  * @module
  */
 

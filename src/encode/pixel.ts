@@ -23,10 +23,11 @@ interface PackIndexedOptions {
 }
 
 /**
- * Convert raw pixel data to RGB555 format (16-bit, 5 bits per channel).
+ * Converts raw pixel data to RGB555 format (16-bit, 5 bits per channel).
  *
  * @param raw Source pixel data.
  * @param isTopDown If true, rows are stored top-down.
+ *
  * @return Encoded pixel data with rows padded to 4-byte boundaries.
  */
 export function rawToRgb555(raw: RawImageData, isTopDown: boolean): Uint8Array {
@@ -61,10 +62,11 @@ export function rawToRgb555(raw: RawImageData, isTopDown: boolean): Uint8Array {
 }
 
 /**
- * Convert raw pixel data to BGR format (24-bit BMP).
+ * Converts raw pixel data to BGR format (24-bit BMP).
  *
  * @param raw Source pixel data.
  * @param isTopDown If true, rows are stored top-down.
+ *
  * @return Encoded pixel data with rows padded to 4-byte boundaries.
  */
 export function rawToBgr(raw: RawImageData, isTopDown: boolean): Uint8Array {
@@ -97,10 +99,11 @@ export function rawToBgr(raw: RawImageData, isTopDown: boolean): Uint8Array {
 }
 
 /**
- * Convert raw pixel data to BGRA format (32-bit BMP).
+ * Converts raw pixel data to BGRA format (32-bit BMP).
  *
  * @param raw Source pixel data.
  * @param isTopDown If true, rows are stored top-down.
+ *
  * @return Encoded pixel data with rows padded to 4-byte boundaries.
  */
 export function rawToBgra(raw: RawImageData, isTopDown: boolean): Uint8Array {
@@ -108,8 +111,8 @@ export function rawToBgra(raw: RawImageData, isTopDown: boolean): Uint8Array {
   const stride = calculateStride(width, 32);
   const result = new Uint8Array(stride * height);
 
-  // A whole pixel is one 32-bit store, packed A R G B so a little-endian write lands as B G R A.
-  // A Uint32Array would follow the host byte order instead, and BMP is little-endian whatever the host is.
+  // One 32-bit store per pixel, packed A R G B so that a little-endian write produces B G R A.
+  // BMP is little-endian on every host, which is why this goes through a `DataView`.
   const view = new DataView(result.buffer);
 
   for (let y = 0; y < height; y++) {
@@ -141,22 +144,16 @@ export function rawToBgra(raw: RawImageData, isTopDown: boolean): Uint8Array {
 }
 
 /**
- * Convert grayscale pixel values to palette indices.
+ * Converts grayscale pixel values to indices into an evenly-spaced ramp of `numColors` shades.
  *
- * @param raw Source grayscale pixel data (channels must be 1).
- * @param numColors Target palette size (2, 16, or 256).
+ * @param gray One byte per pixel.
+ * @param numColors Size of the ramp the indices point into.
+ *
  * @return Array of palette indices. At 256 colors a grayscale value already is its own index,
- *         so this is `raw.data` itself and the caller must only read it.
- *
- * @throws {Error} If the input is not grayscale.
+ *         so this is `gray` itself and the caller must only read it.
  */
-export function grayscaleToIndices(raw: RawImageData, numColors: 2 | 16 | 256): Uint8Array {
-  if (raw.channels !== 1) {
-    throw new Error("Expected grayscale data (channels=1)");
-  }
-
-  // For 256 colors, grayscale values are already palette indices
-  if (numColors === 256) return raw.data;
+export function grayscaleToIndices(gray: Uint8Array, numColors: 2 | 16 | 256): Uint8Array {
+  if (numColors === 256) return gray;
 
   // Rounding through a table: `Math.round` compiles to a data-dependent branch,
   // and pixel data is unpredictable by nature, so calling it per pixel mispredicts on nearly every pixel.
@@ -166,20 +163,20 @@ export function grayscaleToIndices(raw: RawImageData, numColors: 2 | 16 | 256): 
     rounded[value] = Math.round(value * multiplier);
   }
 
-  const source = raw.data;
-  const indices = new Uint8Array(raw.width * raw.height);
+  const indices = new Uint8Array(gray.length);
   for (let i = 0; i < indices.length; i++) {
-    indices[i] = rounded[source[i]];
+    indices[i] = rounded[gray[i]];
   }
 
   return indices;
 }
 
 /**
- * Pack palette index data into 1-bit, 4-bit, or 8-bit format with row padding.
+ * Packs palette index data into 1-bit, 4-bit, or 8-bit format with row padding.
  *
  * @param indices Array of palette indices.
  * @param options Layout options (dimensions, bit depth, row order).
+ *
  * @return Packed pixel data with rows padded to 4-byte boundaries.
  */
 export function packIndexedPixels(indices: Uint8Array, options: PackIndexedOptions): Uint8Array {
@@ -196,7 +193,7 @@ export function packIndexedPixels(indices: Uint8Array, options: PackIndexedOptio
     if (bitsPerPixel === 8) {
       result.set(indices.subarray(srcRowStart, srcRowStart + width), dstRowStart);
     } else if (bitsPerPixel === 4) {
-      // Pack two pixels per byte (high nibble first)
+      // Pack two pixels per byte (high nibble first).
       const pairs = Math.floor(width / 2);
       for (let p = 0; p < pairs; p++) {
         const srcOffset = srcRowStart + p * 2;

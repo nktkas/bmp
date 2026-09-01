@@ -1,13 +1,13 @@
 /**
  * Procedurally generated benchmark images:
- * - {@link genPhoto} — smooth multi-frequency field + grain: hundreds of thousands of distinct
+ * - {@linkcode genPhoto} — smooth multi-frequency field + grain: hundreds of thousands of distinct
  *   colors, so encoding to an indexed format always runs the Wu quantizer.
- * - {@link genFlatRich} — long horizontal color segments: thousands of distinct colors (drives
+ * - {@linkcode genFlatRich} — long horizontal color segments: thousands of distinct colors (drives
  *   the quantizer) with long runs (drives RLE run-fill).
- * - {@link genGray} — smooth single-channel field for the grayscale indexed paths.
+ * - {@linkcode genGray} — smooth single-channel field for the grayscale indexed paths.
  *   Its gradient rarely repeats a value twice in a row, so it is also what drives RLE absolute mode.
  *
- * Everything is seeded ({@link mulberry32}), so the corpus is byte-for-byte reproducible.
+ * Everything is seeded ({@linkcode mulberry32}), so the corpus is byte-for-byte reproducible.
  *
  * @module
  */
@@ -18,9 +18,10 @@ import type { RawImageData } from "../src/mod.ts";
 export const DEFAULT_SIZE = 1024;
 
 /**
- * Small, fast, seeded PRNG (mulberry32).
+ * A small, fast, seeded PRNG (mulberry32).
  *
  * @param seed 32-bit seed.
+ *
  * @return Function returning the next value in [0, 1).
  */
 export function mulberry32(seed: number): () => number {
@@ -33,7 +34,16 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-const clamp8 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
+/**
+ * Rounds a value into the byte range a channel is stored in.
+ *
+ * @param v Value to clamp, in any range.
+ *
+ * @return The nearest integer within 0–255.
+ */
+function clamp8(v: number): number {
+  return Math.min(255, Math.max(0, Math.round(v)));
+}
 
 /**
  * Photographic-like RGB image: a sum of low-frequency sine waves per channel plus fine grain.
@@ -44,6 +54,7 @@ const clamp8 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
  * @param width Image width.
  * @param height Image height.
  * @param seed PRNG seed.
+ *
  * @return RGB image data.
  */
 export function genPhoto(width: number, height: number, seed = 0x1234): RawImageData {
@@ -85,6 +96,7 @@ export function genPhoto(width: number, height: number, seed = 0x1234): RawImage
  * @param width Image width.
  * @param height Image height.
  * @param seed PRNG seed.
+ *
  * @return RGB image data.
  */
 export function genFlatRich(width: number, height: number, seed = 0x55AA): RawImageData {
@@ -120,6 +132,7 @@ export function genFlatRich(width: number, height: number, seed = 0x55AA): RawIm
  * @param width Image width.
  * @param height Image height.
  * @param seed PRNG seed.
+ *
  * @return Grayscale image data (1 channel).
  */
 export function genGray(width: number, height: number, seed = 0xC0FF): RawImageData {
@@ -142,7 +155,13 @@ export interface PerfCase {
   gen: (w: number, h: number) => RawImageData;
   /** Bit depth to encode/decode at. */
   bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32;
-  /** BMP compression type (0=BI_RGB, 1=BI_RLE8, 2=BI_RLE4, 3=BI_BITFIELDS). */
+  /**
+   * BMP compression type:
+   * - `0`: BI_RGB.
+   * - `1`: BI_RLE8.
+   * - `2`: BI_RLE4.
+   * - `3`: BI_BITFIELDS.
+   */
   compression: 0 | 1 | 2 | 3;
 }
 
@@ -169,5 +188,40 @@ export const PERF_CASES = [
   { name: "BI_BITFIELDS: 32 bit", gen: genPhoto, bitsPerPixel: 32, compression: 3 },
 ] as const satisfies readonly PerfCase[];
 
-/** A benchmark case name — one of {@link PERF_CASES}. */
+/** A benchmark case name — one of {@linkcode PERF_CASES}. */
 export type BenchName = (typeof PERF_CASES)[number]["name"];
+
+/**
+ * One library taking part in a benchmark group.
+ *
+ * @typeParam T The input the library's call takes: an encoded file for decoding, an image for encoding.
+ */
+export interface BenchLib<T> {
+  /** Package name, shown as the benchmark's own name inside its group. */
+  name: string;
+  /** The call being measured. */
+  fn: (data: T) => unknown;
+  /** Cases the library takes part in. Omitting it enters every case. */
+  only?: BenchName[];
+}
+
+/**
+ * Registers one benchmark per (case, library) pair, with `@nktkas/bmp` as the baseline of each group.
+ *
+ * @typeParam T The input type shared by the cases and the libraries.
+ * @param cases The prepared input of every case, in matrix order.
+ * @param libs The libraries to measure.
+ */
+export function registerBenches<T>(cases: { name: BenchName; data: T }[], libs: BenchLib<T>[]): void {
+  for (const { name, data } of cases) {
+    for (const lib of libs) {
+      if (lib.only && !lib.only.includes(name)) continue;
+      Deno.bench({
+        name: lib.name,
+        group: name,
+        baseline: lib.name === "@nktkas/bmp",
+        fn: () => void lib.fn(data),
+      });
+    }
+  }
+}

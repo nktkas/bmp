@@ -1,14 +1,13 @@
 /**
  * Decodes BI_RGB (uncompressed) BMP images across all bit depths.
  *
- * BI_RGB is the most common BMP compression type (compression = 0).
  * Indexed formats (1/2/4/8-bit) use a color palette; direct formats
  * (16/24/32/64-bit) encode colors directly in the pixel data.
  *
  * @module
  */
 
-import { type BmpHeader, calculateStride, getImageLayout, type RawImageData } from "../common.ts";
+import { BmpError, type BmpHeader, calculateStride, getImageLayout, type RawImageData } from "../common.ts";
 import { extractPalette } from "./palette.ts";
 
 /** Lookup table for converting 5-bit values (0–31) to 8-bit (0–255). */
@@ -16,13 +15,14 @@ const RGB555_TO_RGB888 = new Uint8Array(32);
 for (let i = 0; i < 32; i++) RGB555_TO_RGB888[i] = Math.round((i * 255) / 31);
 
 /**
- * Decode a BI_RGB BMP image to raw pixel data.
+ * Decodes a BI_RGB BMP image to raw pixel data.
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Decoded pixel data.
  *
- * @throws {Error} If the bit depth is unsupported.
+ * @throws {BmpError} `UNSUPPORTED_DEPTH`, when the header names a bit depth BI_RGB does not define.
  */
 export function decodeRgb(bmp: Uint8Array, header: BmpHeader): RawImageData {
   switch (header.bitsPerPixel) {
@@ -40,15 +40,16 @@ export function decodeRgb(bmp: Uint8Array, header: BmpHeader): RawImageData {
     case 64:
       return decode64Bit(bmp, header);
     default:
-      throw new Error(`Unsupported BMP bit depth: ${header.bitsPerPixel} bpp`);
+      throw new BmpError("UNSUPPORTED_DEPTH", `Unsupported BMP bit depth: ${header.bitsPerPixel} bpp`);
   }
 }
 
 /**
- * Decode indexed (palette-based) pixel data for all bit depths: 1, 2, 4, 8.
+ * Decodes indexed (palette-based) pixel data for all bit depths: 1, 2, 4, 8.
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Decoded pixel data.
  */
 function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -65,7 +66,7 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const output = new Uint8Array(absWidth * absHeight * channels);
 
   if (bitsPerPixel === 8) {
-    // 8-bit: one index per byte, no bit unpacking needed
+    // 8-bit: one index per byte.
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : absHeight - 1 - y;
       const srcRowStart = dataOffset + srcY * stride;
@@ -240,10 +241,11 @@ function decodeIndexed(bmp: Uint8Array, header: BmpHeader): RawImageData {
 }
 
 /**
- * Decode 16-bit BI_RGB pixels (RGB555 format, 5 bits per channel).
+ * Decodes 16-bit BI_RGB pixels (RGB555 format, 5 bits per channel).
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Decoded pixel data.
  */
 function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -269,10 +271,11 @@ function decode16Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
 }
 
 /**
- * Decode 24-bit BI_RGB pixels (BGR → RGB).
+ * Decodes 24-bit BI_RGB pixels (BGR → RGB).
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Decoded pixel data.
  */
 function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -283,14 +286,16 @@ function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const rowBytes = absWidth * 3;
   const output = new Uint8Array(rowBytes * absHeight);
 
-  // Copy rows (handling bottom-up → top-down row order)
+  // --- Copy the rows in image order ----------------------------------------------------------------------------------
+
   for (let y = 0; y < absHeight; y++) {
     const srcY = isTopDown ? y : absHeight - 1 - y;
     const srcStart = dataOffset + srcY * stride;
     output.set(bmp.subarray(srcStart, srcStart + rowBytes), y * rowBytes);
   }
 
-  // Swap BGR → RGB (swap first and third byte of each triplet)
+  // --- Swap each BGR triplet to RGB ----------------------------------------------------------------------------------
+
   for (let i = 0; i < output.length; i += 3) {
     const tmp = output[i];
     output[i] = output[i + 2];
@@ -301,10 +306,11 @@ function decode24Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
 }
 
 /**
- * Decode 32-bit BI_RGB pixels (BGRA → RGB or RGBA, auto-detecting alpha).
+ * Decodes 32-bit BI_RGB pixels (BGRA → RGB or RGBA, auto-detecting alpha).
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Decoded pixel data.
  */
 function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -312,8 +318,7 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
   const stride = calculateStride(absWidth, bitsPerPixel);
 
-  // Linear alpha scan — 32bpp has no stride padding,
-  // so alpha bytes are at a fixed stride of 4 regardless of row order
+  // 32bpp rows carry no padding, so alpha is every fourth byte whatever the row order.
   let hasAlpha = false;
   const pixelEnd = dataOffset + absWidth * absHeight * 4;
   for (let offset = dataOffset + 3; offset < pixelEnd; offset += 4) {
@@ -324,17 +329,16 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
   }
 
   if (hasAlpha) {
-    // Two-pass: memcpy rows (reordering bottom-up → top-down), then BGRA → RGBA swap
     const rowBytes = absWidth * 4;
     const output = new Uint8Array(rowBytes * absHeight);
 
+    // The copy already places alpha correctly; only red and blue need swapping.
     for (let y = 0; y < absHeight; y++) {
       const srcY = isTopDown ? y : absHeight - 1 - y;
       const srcStart = dataOffset + srcY * stride;
       output.set(bmp.subarray(srcStart, srcStart + rowBytes), y * rowBytes);
     }
 
-    // Swap B (byte 0) ↔ R (byte 2) in each 4-byte group
     for (let i = 0; i < output.length; i += 4) {
       const tmp = output[i];
       output[i] = output[i + 2];
@@ -342,31 +346,32 @@ function decode32Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
     }
 
     return { width: absWidth, height: absHeight, channels: 4, data: output };
-  } else {
-    const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
-    const output = new Uint8Array(absWidth * absHeight * 3);
-
-    for (let y = 0; y < absHeight; y++) {
-      const srcY = isTopDown ? y : absHeight - 1 - y;
-      let srcOffset = dataOffset + srcY * stride;
-      let dstOffset = y * absWidth * 3;
-      for (let x = 0; x < absWidth; x++, srcOffset += 4) {
-        const pixel = view.getUint32(srcOffset, true);
-        output[dstOffset++] = (pixel >> 16) & 0xFF; // R
-        output[dstOffset++] = (pixel >> 8) & 0xFF; // G
-        output[dstOffset++] = pixel & 0xFF; // B
-      }
-    }
-
-    return { width: absWidth, height: absHeight, channels: 3, data: output };
   }
+
+  const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
+  const output = new Uint8Array(absWidth * absHeight * 3);
+
+  for (let y = 0; y < absHeight; y++) {
+    const srcY = isTopDown ? y : absHeight - 1 - y;
+    let srcOffset = dataOffset + srcY * stride;
+    let dstOffset = y * absWidth * 3;
+    for (let x = 0; x < absWidth; x++, srcOffset += 4) {
+      const pixel = view.getUint32(srcOffset, true);
+      output[dstOffset++] = (pixel >> 16) & 0xFF; // R
+      output[dstOffset++] = (pixel >> 8) & 0xFF; // G
+      output[dstOffset++] = pixel & 0xFF; // B
+    }
+  }
+
+  return { width: absWidth, height: absHeight, channels: 3, data: output };
 }
 
 /**
- * Decode 64-bit BI_RGB pixels (s2.13 fixed-point BGRA → sRGB RGBA).
+ * Decodes 64-bit BI_RGB pixels (s2.13 fixed-point BGRA → sRGB RGBA).
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header.
+ *
  * @return Decoded pixel data.
  */
 function decode64Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -383,7 +388,7 @@ function decode64Bit(bmp: Uint8Array, header: BmpHeader): RawImageData {
     let dstOffset = y * absWidth * 4;
 
     for (let x = 0; x < absWidth; x++, srcOffset += 8) {
-      // Read 16-bit little-endian values (stored as BGRA), then convert through the tables
+      // Channels are stored BGRA, each a 16-bit little-endian value.
       output[dstOffset++] = color[bmp[srcOffset + 4] | (bmp[srcOffset + 5] << 8)]; // R
       output[dstOffset++] = color[bmp[srcOffset + 2] | (bmp[srcOffset + 3] << 8)]; // G
       output[dstOffset++] = color[bmp[srcOffset] | (bmp[srcOffset + 1] << 8)]; // B
@@ -401,13 +406,11 @@ let fixedPointCache: { color: Uint8Array; alpha: Uint8Array } | null = null;
 const FIXED_POINT_ONE = 0x2000;
 
 /**
- * Tabulate the s2.13 fixed-point conversion for every 16-bit channel value.
+ * Tabulates the s2.13 fixed-point conversion for every 16-bit channel value.
  *
- * A channel is only 16 bits wide, so the whole input domain fits in a table
- * and the sRGB gamma is evaluated once per process instead of three times per pixel.
+ * A channel is only 16 bits wide, so the whole input domain fits in a table.
  * Only the values that land inside [0, 1] need the gamma: above {@linkcode FIXED_POINT_ONE} the value clamps to 1,
  * and from the sign bit up it is negative and clamps to 0.
- * The tables are built on the first 64bpp image and kept, since nothing else in the decoder needs them.
  *
  * @return Gamma-corrected values for the color channels, and linear values for alpha.
  */
@@ -430,9 +433,10 @@ function fixedPointTables(): { color: Uint8Array; alpha: Uint8Array } {
 }
 
 /**
- * Convert a linear-light color component to sRGB gamma-corrected value.
+ * Converts a linear-light color component to sRGB gamma-corrected value.
  *
  * @param c Linear-light color component in [0, 1].
+ *
  * @return sRGB gamma-corrected value in [0, 1].
  */
 function linearToSrgb(c: number): number {

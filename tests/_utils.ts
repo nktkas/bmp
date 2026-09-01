@@ -2,6 +2,7 @@
 
 /**
  * Shared helpers for the decode/encode correctness tests.
+ *
  * @module
  */
 
@@ -18,6 +19,7 @@ export const SUITE_DIR = join(import.meta.dirname!, "_bmpsuite-2.8");
  *
  * @param data Raw pixel data.
  * @param channels Number of color channels: 1 (grayscale), 3 (RGB), or 4 (RGBA).
+ *
  * @return RGBA pixel data.
  */
 export function toRgba(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
@@ -43,7 +45,7 @@ export function toRgba(data: Uint8Array, channels: 1 | 3 | 4): Uint8Array {
 }
 
 /**
- * Assert that two images have the same dimensions and (within `threshold`) the same pixels.
+ * Asserts that two images have the same dimensions and (within `threshold`) the same pixels.
  *
  * @param actual Image under test.
  * @param expected Reference image.
@@ -59,7 +61,7 @@ export function assertPixelsMatch(actual: RawImageData, expected: RawImageData, 
     undefined,
     actual.width,
     actual.height,
-    threshold === undefined ? undefined : { threshold },
+    { threshold },
   );
   assertEquals(diff, 0, "Found different pixels");
 }

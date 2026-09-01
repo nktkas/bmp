@@ -1,37 +1,41 @@
 /**
  * Decodes BMP images with BI_BITFIELDS or BI_ALPHABITFIELDS compression.
+ *
  * @module
  */
 
-import { analyzeBitMask, type BmpHeader, calculateStride, getImageLayout, type RawImageData } from "../common.ts";
+import {
+  analyzeBitMask,
+  BGRA8888_MASKS,
+  type BmpHeader,
+  calculateStride,
+  getImageLayout,
+  type RawImageData,
+  RGB555_MASKS,
+} from "../common.ts";
 
 /**
- * Decode a BI_BITFIELDS / BI_ALPHABITFIELDS BMP image to raw pixel data.
+ * Decodes a BI_BITFIELDS / BI_ALPHABITFIELDS BMP image to raw pixel data.
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header with bitfield masks.
+ *
  * @return Decoded pixel data (RGB or RGBA depending on alpha mask presence).
  */
 export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageData {
   const { dataOffset, bitsPerPixel, width, height } = header;
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
 
-  // Resolve bit masks (use header masks, or fall back to defaults if all zero)
+  // With all three masks zero, the standard masks for the depth apply.
   let { redMask, greenMask, blueMask, alphaMask } = header;
   if (redMask === 0 && greenMask === 0 && blueMask === 0) {
-    if (bitsPerPixel === 16) {
-      redMask = 0x7C00; // R: bits 14–10
-      greenMask = 0x03E0; // G: bits 9–5
-      blueMask = 0x001F; // B: bits 4–0
-    } else {
-      redMask = 0x00FF0000; // R: bits 23–16
-      greenMask = 0x0000FF00; // G: bits 15–8
-      blueMask = 0x000000FF; // B: bits 7–0
-      alphaMask = 0xFF000000; // A: bits 31–24
-    }
+    const standard = bitsPerPixel === 16 ? RGB555_MASKS : BGRA8888_MASKS;
+    redMask = standard.redMask;
+    greenMask = standard.greenMask;
+    blueMask = standard.blueMask;
+    alphaMask = standard.alphaMask ?? 0;
   }
 
-  // Analyze each mask to find where the channel bits are
   const red = analyzeBitMask(redMask);
   const green = analyzeBitMask(greenMask);
   const blue = analyzeBitMask(blueMask);
@@ -42,14 +46,14 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
 
   const output = new Uint8Array(absWidth * absHeight * channels);
 
-  // Build LUTs: for each possible raw value, pre-compute the scaled 0–255 result
   const redLut = createDecodeScaleLut(red.bits);
   const greenLut = createDecodeScaleLut(green.bits);
   const blueLut = createDecodeScaleLut(blue.bits);
 
-  // Specialized loops: hoist bitsPerPixel and alpha checks outside the hot pixel loop
+  const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
+
+  // Four loops: one per combination of 16/32 bpp and alpha present or absent.
   if (bitsPerPixel === 16) {
-    const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
     if (alpha.bits > 0) {
       const alphaLut = createDecodeScaleLut(alpha.bits);
       for (let y = 0; y < absHeight; y++) {
@@ -58,10 +62,10 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
         let dstOffset = y * absWidth * 4;
         for (let x = 0; x < absWidth; x++, srcOffset += 2) {
           const pixel = view.getUint16(srcOffset, true);
-          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift]; // R
-          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift]; // G
-          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift]; // B
-          output[dstOffset++] = alphaLut[(pixel & alphaMask) >>> alpha.shift]; // A
+          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift];
+          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift];
+          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift];
+          output[dstOffset++] = alphaLut[(pixel & alphaMask) >>> alpha.shift];
         }
       }
     } else {
@@ -71,14 +75,13 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
         let dstOffset = y * absWidth * 3;
         for (let x = 0; x < absWidth; x++, srcOffset += 2) {
           const pixel = view.getUint16(srcOffset, true);
-          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift]; // R
-          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift]; // G
-          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift]; // B
+          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift];
+          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift];
+          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift];
         }
       }
     }
   } else {
-    const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
     if (alpha.bits > 0) {
       const alphaLut = createDecodeScaleLut(alpha.bits);
       for (let y = 0; y < absHeight; y++) {
@@ -87,10 +90,10 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
         let dstOffset = y * absWidth * 4;
         for (let x = 0; x < absWidth; x++, srcOffset += 4) {
           const pixel = view.getUint32(srcOffset, true);
-          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift]; // R
-          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift]; // G
-          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift]; // B
-          output[dstOffset++] = alphaLut[(pixel & alphaMask) >>> alpha.shift]; // A
+          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift];
+          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift];
+          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift];
+          output[dstOffset++] = alphaLut[(pixel & alphaMask) >>> alpha.shift];
         }
       }
     } else {
@@ -100,9 +103,9 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
         let dstOffset = y * absWidth * 3;
         for (let x = 0; x < absWidth; x++, srcOffset += 4) {
           const pixel = view.getUint32(srcOffset, true);
-          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift]; // R
-          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift]; // G
-          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift]; // B
+          output[dstOffset++] = redLut[(pixel & redMask) >>> red.shift];
+          output[dstOffset++] = greenLut[(pixel & greenMask) >>> green.shift];
+          output[dstOffset++] = blueLut[(pixel & blueMask) >>> blue.shift];
         }
       }
     }
@@ -112,9 +115,10 @@ export function decodeBitfields(bmp: Uint8Array, header: BmpHeader): RawImageDat
 }
 
 /**
- * Create a lookup table that scales raw channel values to 0–255.
+ * Builds a lookup table that scales raw channel values to 0–255.
  *
  * @param bits Number of bits in the channel.
+ *
  * @return Lookup table mapping raw values to 0–255.
  */
 function createDecodeScaleLut(bits: number): Uint8Array {
@@ -123,7 +127,7 @@ function createDecodeScaleLut(bits: number): Uint8Array {
   const lut = new Uint8Array(size);
   const max = size - 1;
   for (let i = 0; i < size; i++) {
-    lut[i] = Math.min(255, Math.round((i * 255) / max));
+    lut[i] = Math.round((i * 255) / max);
   }
   return lut;
 }

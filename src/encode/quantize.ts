@@ -1,47 +1,71 @@
 /**
  * Color quantization for reducing images to a limited palette.
  *
- * Uses Wu's moment-based algorithm to find the best N colors for an image (a single histogram pass with no sorting),
- * and an inverse colormap over the RGB cube for fast nearest-neighbor lookup when mapping pixels to palette indices.
+ * Wu's moment-based algorithm builds the palette; an inverse colormap over the RGB cube maps each pixel to its
+ * nearest palette color.
+ *
+ * @see https://gist.github.com/bert/1192520
  *
  * @module
  */
 
 import type { Color, RawImageData } from "../common.ts";
+import { grayscaleToIndices } from "./pixel.ts";
 
-// ============================================================
+// =====================================================================================================================
 // Wu's moment-based color quantizer
-// ============================================================
+// =====================================================================================================================
 
 /** Levels per channel (32) plus one guard slot used by the cumulative-moment integration. */
 const WU_SIDE = 33;
 
-/** A box (axis-aligned region) in the quantized color space. */
+/**
+ * A box (axis-aligned region) in the quantized color space.
+ *
+ * Each pair of bounds is half-open: the low bound is one below the first cell, the high bound is the last cell.
+ */
 interface WuBox {
+  /** Red bound below the box. */
   r0: number;
+  /** Red bound at the box's top. */
   r1: number;
+  /** Green bound below the box. */
   g0: number;
+  /** Green bound at the box's top. */
   g1: number;
+  /** Blue bound below the box. */
   b0: number;
+  /** Blue bound at the box's top. */
   b1: number;
   /** Volume in histogram cells; a box of volume ≤ 1 cannot be cut further. */
   vol: number;
 }
 
-/** Flatten a histogram cell coordinate into an index into the moment arrays. */
-const wuIndex = (r: number, g: number, b: number): number => (r * WU_SIDE + g) * WU_SIDE + b;
+/**
+ * Flattens a histogram cell coordinate into an index into the moment arrays.
+ *
+ * @param r Red cell, from `0` to {@linkcode WU_SIDE} − 1.
+ * @param g Green cell, in the same range.
+ * @param b Blue cell, in the same range.
+ *
+ * @return The index the cell's moments live at.
+ */
+function wuIndex(r: number, g: number, b: number): number {
+  return (r * WU_SIDE + g) * WU_SIDE + b;
+}
 
-// Splitting axes, encoded so they can index the moment helpers.
+// The three axes a box can be cut along; the values only have to differ from one another.
 const WU_RED = 2, WU_GREEN = 1, WU_BLUE = 0;
 
 /**
- * Build an optimal palette of up to `numColors` colors using Wu's algorithm.
+ * Builds a palette of up to `numColors` colors by splitting the histogram along its highest-variance axis.
  *
  * @param raw Source image (RGB or RGBA).
  * @param numColors Target palette size.
+ *
  * @return Array of representative colors (padded to `numColors` with black if fewer are found).
  */
-function wuQuantize(raw: RawImageData, numColors: number): Color[] {
+function wuQuantize(raw: RawImageData, numColors: 2 | 16 | 256): Color[] {
   const size = WU_SIDE * WU_SIDE * WU_SIDE;
   const wt = new Float64Array(size); // pixel counts
   const mr = new Float64Array(size); // Σ red
@@ -49,7 +73,8 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
   const mb = new Float64Array(size); // Σ blue
   const m2 = new Float64Array(size); // Σ (r² + g² + b²)
 
-  // Histogram: bucket each pixel into a 32×32×32 grid (channel >> 3), offset by 1.
+  // --- Bucket every pixel into a 32x32x32 grid, offset by one to leave the guard slot empty --------------------------
+
   const { data, channels } = raw;
   const pixelCount = raw.width * raw.height;
   for (let i = 0; i < pixelCount; i++) {
@@ -65,7 +90,8 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
     m2[k] += r * r + g * g + b * b;
   }
 
-  // Integrate into cumulative moments so any box sum is an O(1) 8-corner lookup.
+  // --- Integrate the grid, so that any box sum becomes an 8-corner lookup --------------------------------------------
+
   for (const v of [wt, mr, mg, mb, m2]) {
     const area = new Float64Array(WU_SIDE);
     for (let r = 1; r < WU_SIDE; r++) {
@@ -81,14 +107,31 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
     }
   }
 
-  // Total moment over a box, via inclusion-exclusion of its 8 corners.
+  // --- Read the integrated grid --------------------------------------------------------------------------------------
+
+  /**
+   * Sums one moment over a whole box, by inclusion-exclusion of its 8 corners.
+   *
+   * @param c Box to sum over.
+   * @param m Integrated moment array to read.
+   *
+   * @return The moment's total inside `c`.
+   */
   const vol = (c: WuBox, m: Float64Array): number =>
     m[wuIndex(c.r1, c.g1, c.b1)] - m[wuIndex(c.r1, c.g1, c.b0)] -
     m[wuIndex(c.r1, c.g0, c.b1)] + m[wuIndex(c.r1, c.g0, c.b0)] -
     m[wuIndex(c.r0, c.g1, c.b1)] + m[wuIndex(c.r0, c.g1, c.b0)] +
     m[wuIndex(c.r0, c.g0, c.b1)] - m[wuIndex(c.r0, c.g0, c.b0)];
 
-  // Marginal moment over the bottom face of a box, perpendicular to `dir`.
+  /**
+   * Sums one moment over the box's low face along `dir`, negated for adding to a {@linkcode top}.
+   *
+   * @param c Box whose face is taken.
+   * @param dir Axis the face is perpendicular to.
+   * @param m Integrated moment array to read.
+   *
+   * @return The moment's total over that face.
+   */
   const bottom = (c: WuBox, dir: number, m: Float64Array): number => {
     if (dir === WU_RED) {
       return -m[wuIndex(c.r0, c.g1, c.b1)] + m[wuIndex(c.r0, c.g1, c.b0)] +
@@ -102,7 +145,16 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
       m[wuIndex(c.r0, c.g1, c.b0)] - m[wuIndex(c.r0, c.g0, c.b0)];
   };
 
-  // Marginal moment over the face at position `pos` along `dir`.
+  /**
+   * Sums one moment over the box's cross-section at `pos`.
+   *
+   * @param c Box being cut.
+   * @param dir Axis the cut runs along.
+   * @param pos Position of the cut on that axis.
+   * @param m Integrated moment array to read.
+   *
+   * @return The moment's total over that cross-section.
+   */
   const top = (c: WuBox, dir: number, pos: number, m: Float64Array): number => {
     if (dir === WU_RED) {
       return m[wuIndex(pos, c.g1, c.b1)] - m[wuIndex(pos, c.g1, c.b0)] -
@@ -116,14 +168,32 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
       m[wuIndex(c.r0, c.g1, pos)] + m[wuIndex(c.r0, c.g0, pos)];
   };
 
-  // Weighted variance of a box (the quantity each cut tries to reduce).
+  // --- Choose and perform the cuts -----------------------------------------------------------------------------------
+
+  /**
+   * Measures the color spread of a box, which each cut reduces.
+   *
+   * @param c Box to measure.
+   *
+   * @return Its weighted variance; `0` for a box holding no pixels.
+   */
   const variance = (c: WuBox): number => {
     const dr = vol(c, mr), dg = vol(c, mg), db = vol(c, mb), n = vol(c, wt);
     if (n === 0) return 0;
     return vol(c, m2) - (dr * dr + dg * dg + db * db) / n;
   };
 
-  // Find the position along `dir` that maximizes the combined between-box sum-of-squares.
+  /**
+   * Finds where along `dir` a cut separates the box's colors best.
+   *
+   * @param c Box to cut.
+   * @param dir Axis to cut along.
+   * @param first First position the cut may take.
+   * @param last One past the last position the cut may take.
+   * @param whole The box's own red, green, blue and weight totals, in that order.
+   *
+   * @return The best score, and the position reaching it; `-1` when no position separates anything.
+   */
   const maximize = (c: WuBox, dir: number, first: number, last: number, whole: number[]): [number, number] => {
     const baseR = bottom(c, dir, mr),
       baseG = bottom(c, dir, mg),
@@ -151,7 +221,14 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
     return [max, cutAt];
   };
 
-  // Cut box `s1` into `s1` and `s2` along the best axis; returns false if it cannot be split.
+  /**
+   * Splits a box in two along whichever axis separates its colors best.
+   *
+   * @param s1 Box to split, shrunk in place to the lower half.
+   * @param s2 Box to fill with the upper half.
+   *
+   * @return `false` when the box holds a single color and cannot be split, leaving both untouched.
+   */
   const cut = (s1: WuBox, s2: WuBox): boolean => {
     const whole = [vol(s1, mr), vol(s1, mg), vol(s1, mb), vol(s1, wt)];
     const [mxr, cr] = maximize(s1, WU_RED, s1.r0 + 1, s1.r1, whole);
@@ -161,7 +238,9 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
     let dir: number;
     if (mxr >= mxg && mxr >= mxb) {
       dir = WU_RED;
-      if (cr < 0) return false; // box has zero range on every axis
+      // `maximize` returns -1 only when its score is 0, and a zero score always lands in this branch,
+      // so green and blue need no such check.
+      if (cr < 0) return false;
     } else if (mxg >= mxr && mxg >= mxb) {
       dir = WU_GREEN;
     } else {
@@ -189,7 +268,8 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
     return true;
   };
 
-  // Greedily split the box with the largest variance until `numColors` boxes exist.
+  // --- Split the highest-variance box until the palette is full ------------------------------------------------------
+
   const boxes: WuBox[] = Array.from(
     { length: numColors },
     () => ({ r0: 0, r1: 0, g0: 0, g1: 0, b0: 0, b1: 0, vol: 0 }),
@@ -218,7 +298,9 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
     if (maxVar <= 0) break; // no box can be split usefully
   }
 
-  // Representative color of each box = its weighted mean (full-resolution, not binned).
+  // --- Take each box's weighted mean as its color --------------------------------------------------------------------
+
+  // The mean uses the original channel values, so it is not quantized to the 32-level grid.
   const palette: Color[] = [];
   for (let k = 0; k < count; k++) {
     const w = vol(boxes[k], wt);
@@ -234,38 +316,63 @@ function wuQuantize(raw: RawImageData, numColors: number): Color[] {
   return palette;
 }
 
-// ============================================================
+// =====================================================================================================================
 // Palette building
-// ============================================================
+// =====================================================================================================================
+
+/** A palette together with the pixels rewritten as indices into it. */
+export interface IndexedImage {
+  /** The palette the indices point into, exactly `numColors` entries long. */
+  palette: Color[];
+  /** One index per pixel, in the row order of the source. */
+  indices: Uint8Array;
+}
 
 /**
- * Generate an evenly-spaced grayscale palette.
+ * Reduces an image to a palette of `numColors` entries and the indices into it.
  *
- * @param numColors Number of colors (e.g. 2, 16, or 256).
- * @return Array of grayscale colors.
+ * @param raw Source pixel data.
+ * @param numColors Palette size the target bit depth calls for.
+ * @param palette Palette to encode against, holding at least `numColors` colors; a longer one is cut down to
+ *                size. Omitting it builds a palette from the image.
+ * @return The palette in use and one index per pixel.
  */
-export function generateGrayscalePalette(numColors: number): Color[] {
-  const palette: Color[] = [];
+export function toIndexed(raw: RawImageData, numColors: 2 | 16 | 256, palette?: Color[]): IndexedImage {
+  const custom = palette && palette.length >= numColors ? palette.slice(0, numColors) : undefined;
+  const grayscale = custom === undefined && raw.channels === 1;
+  const finalPalette = custom ?? (grayscale ? grayscalePalette(numColors) : wuPalette(raw, numColors));
 
+  // A generated grayscale palette is an even ramp, so the index is the pixel value scaled to `numColors`.
+  const indices = grayscale ? grayscaleToIndices(raw.data, numColors) : convertToIndexed(raw, finalPalette);
+  return { palette: finalPalette, indices };
+}
+
+/**
+ * Builds an evenly-spaced ramp from black to white.
+ *
+ * @param numColors Number of steps in the ramp.
+ *
+ * @return The ramp, first entry black and last entry white.
+ */
+function grayscalePalette(numColors: 2 | 16 | 256): Color[] {
+  const palette: Color[] = [];
   for (let i = 0; i < numColors; i++) {
-    // Linear interpolation: first entry = 0, last entry = 255
-    const gray = numColors === 1 ? 0 : Math.round((i * 255) / (numColors - 1));
+    const gray = Math.round((i * 255) / (numColors - 1));
     palette.push({ red: gray, green: gray, blue: gray });
   }
-
   return palette;
 }
 
 /**
- * Generate an optimal color palette using Wu's moment-based quantizer.
+ * Builds the palette for an image, using its own colors when there are no more than `numColors` of them.
  *
  * @param raw Source image (RGB or RGBA).
- * @param numColors Target palette size (e.g. 2, 16, 256).
- * @return Array of representative colors.
+ * @param numColors Target palette size.
+ *
+ * @return Exactly `numColors` colors, padded with black when the image offers fewer.
  */
-export function generatePalette(raw: RawImageData, numColors: number): Color[] {
-  // Fast path: if the image has no more than `numColors` distinct colors, use them exactly.
-  // Scanning stops as soon as the count exceeds the target, so a high-color image pays almost nothing.
+function wuPalette(raw: RawImageData, numColors: 2 | 16 | 256): Color[] {
+  // The scan stops once the count passes the target, so a high-color image exits after few pixels.
   const { data, channels } = raw;
   const pixelCount = raw.width * raw.height;
   const unique = new Set<number>();
@@ -295,38 +402,38 @@ export function generatePalette(raw: RawImageData, numColors: number): Color[] {
   return wuQuantize(raw, numColors);
 }
 
-// ============================================================
+// =====================================================================================================================
 // Pixel mapping
-// ============================================================
+// =====================================================================================================================
 
 /** Larger than any squared distance between two 24-bit colors (3 x 255^2 = 195075). */
 const MAX_SQUARED_DISTANCE = 0x7FFFFFFF;
 
-/** Palette sizes up to which a plain scan costs less per pixel than any lookup structure. */
+/** Largest palette size mapped by a plain scan alone, with neither the color cache nor the colormap. */
 const SCAN_ONLY_COLORS = 8;
 
-/** Slots in the direct-mapped color cache. Sized to stay inside L1 while covering flat images. */
+/** Address bits of the direct-mapped color cache, so 4096 slots. */
 const CACHE_BITS = 12;
 
 /**
- * Distinct colors after which an inverse colormap earns back what it costs to build.
+ * Cache misses after which the colormap is built rather than scanning on.
  *
- * The count is not known in advance, so it is discovered from cache misses as the image is mapped:
- * an image that keeps missing has many colors and the colormap pays off,
- * while one that settles into the cache never builds it.
+ * The distinct-color count is unknown before the mapping runs, so the miss count stands in for it: every
+ * distinct color misses at least once, and colors that collide in the cache miss again.
  */
 const COLORMAP_AFTER_MISSES = 512;
 
 /**
- * Map each pixel in the image to the nearest palette color index.
+ * Maps each pixel in the image to the nearest palette color index.
  *
  * Ties are broken towards the lower palette index.
  *
  * @param raw Source pixel data.
  * @param palette Target color palette. Must hold at least one color.
+ *
  * @return Array of palette indices, one per pixel.
  */
-export function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Array {
+function convertToIndexed(raw: RawImageData, palette: Color[]): Uint8Array {
   const { data, channels, width, height } = raw;
   const palLen = palette.length;
   const flat = flattenPalette(palette);
@@ -409,16 +516,22 @@ interface FlatColors {
 }
 
 /**
- * Split a palette into one flat array per channel.
+ * Splits a palette into one flat array per channel.
  *
  * @param palette Colors to split.
+ *
  * @return The three channel arrays, in palette order.
  */
 function flattenPalette(palette: Color[]): FlatColors {
-  const red = new Uint8Array(palette.length);
-  const green = new Uint8Array(palette.length);
-  const blue = new Uint8Array(palette.length);
-  for (let i = 0; i < palette.length; i++) {
+  const palLen = palette.length;
+
+  // The three channels share one allocation because a typed array costs about the same whatever its size.
+  const channels = new Uint8Array(palLen * 3);
+  const red = channels.subarray(0, palLen);
+  const green = channels.subarray(palLen, palLen * 2);
+  const blue = channels.subarray(palLen * 2);
+
+  for (let i = 0; i < palLen; i++) {
     red[i] = palette[i].red;
     green[i] = palette[i].green;
     blue[i] = palette[i].blue;
@@ -427,7 +540,7 @@ function flattenPalette(palette: Color[]): FlatColors {
 }
 
 /**
- * Find the nearest palette color by comparing against every entry.
+ * Finds the nearest palette color by comparing against every entry.
  *
  * @param r Red channel of the pixel.
  * @param g Green channel of the pixel.
@@ -436,6 +549,7 @@ function flattenPalette(palette: Color[]): FlatColors {
  * @param green Green channel of every palette color.
  * @param blue Blue channel of every palette color.
  * @param palLen Number of palette colors.
+ *
  * @return Index of the nearest color, the lowest one when several tie.
  */
 function scanNearest(
@@ -461,9 +575,9 @@ function scanNearest(
   return closest;
 }
 
-// ============================================================
+// =====================================================================================================================
 // Inverse colormap
-// ============================================================
+// =====================================================================================================================
 
 // Cells per axis in the inverse colormap, and in the coarse grid that prunes it.
 const CELL_BITS = 5, CELL_SIDE = 32, COARSE_BITS = 2, COARSE_SIDE = 4;
@@ -481,7 +595,7 @@ interface AxisDistances {
  *
  * A cell keeps every color that could be nearest to some point inside it:
  * those no farther from the cell's nearest corner than any color is from its farthest corner.
- * The list is filled the first time a pixel lands in the cell, so an image touching few cells pays for few lists.
+ * A cell's list is built on the first pixel that falls in it.
  */
 interface InverseColormap {
   /** Number of palette colors the map was built for. */
@@ -503,10 +617,11 @@ interface InverseColormap {
 }
 
 /**
- * Tabulate, for one channel, the squared distance from each slab of cells to each palette color.
+ * Tabulates, for one channel, the squared distance from each slab of cells to each palette color.
  *
  * @param component Channel value of every palette color.
  * @param side Cells per axis.
+ *
  * @return Nearest and farthest squared distances, indexed by `slab * palette length + color`.
  */
 function tabulateAxis(component: Uint8Array, side: number): AxisDistances {
@@ -530,9 +645,10 @@ function tabulateAxis(component: Uint8Array, side: number): AxisDistances {
 }
 
 /**
- * Build an inverse colormap, with the coarse blocks filled and the fine cells left empty.
+ * Builds an inverse colormap, with the coarse blocks filled and the fine cells left empty.
  *
  * @param flat Palette split per channel.
+ *
  * @return The map, ready for {@linkcode colormapNearest}.
  */
 function buildColormap(flat: FlatColors): InverseColormap {
@@ -583,7 +699,7 @@ function buildColormap(flat: FlatColors): InverseColormap {
 }
 
 /**
- * Find the nearest palette color through the colormap, filling the pixel's cell if needed.
+ * Finds the nearest palette color through the colormap, filling the pixel's cell if needed.
  *
  * @param map Inverse colormap, updated in place as cells are filled.
  * @param r Red channel of the pixel.
@@ -592,6 +708,7 @@ function buildColormap(flat: FlatColors): InverseColormap {
  * @param red Red channel of every palette color.
  * @param green Green channel of every palette color.
  * @param blue Blue channel of every palette color.
+ *
  * @return Index of the nearest color, the lowest one when several tie.
  */
 function colormapNearest(

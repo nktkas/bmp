@@ -1,7 +1,9 @@
 // deno-lint-ignore-file no-import-prefix
 
 /**
- * Decode benchmark against other BMP libraries, on generated images (bench/_corpus.ts).
+ * Decode benchmark against other BMP libraries, over the shared corpus.
+ *
+ * @module
  */
 
 import { Buffer } from "node:buffer";
@@ -11,15 +13,9 @@ import * as bmp_ts from "npm:bmp-ts@^1.0.9";
 import bmpimagejs from "npm:bmpimagejs@^1.0.4";
 import * as fast_bmp from "npm:fast-bmp@^4.0.1";
 import * as nktkas_bmp from "../src/mod.ts";
-import { type BenchName, DEFAULT_SIZE, PERF_CASES } from "./_corpus.ts";
+import { type BenchLib, DEFAULT_SIZE, PERF_CASES, registerBenches } from "./_corpus.ts";
 
-interface BenchLib {
-  name: string;
-  fn: (data: Uint8Array) => unknown;
-  only?: BenchName[];
-}
-
-const libs: BenchLib[] = [
+const LIBS: BenchLib<Uint8Array>[] = [
   { name: "@nktkas/bmp", fn: (d) => nktkas_bmp.decode(d) },
   { name: "@cwasm/nsbmp", fn: (d) => nsbmp.decode(d) },
   {
@@ -78,7 +74,7 @@ const libs: BenchLib[] = [
   },
 ];
 
-const cases = PERF_CASES.map((c) => ({
+const CASES = PERF_CASES.map((c) => ({
   name: c.name,
   data: nktkas_bmp.encode(c.gen(DEFAULT_SIZE, DEFAULT_SIZE), {
     bitsPerPixel: c.bitsPerPixel,
@@ -86,14 +82,4 @@ const cases = PERF_CASES.map((c) => ({
   }),
 }));
 
-for (const { name, data } of cases) {
-  for (const lib of libs) {
-    if (lib.only && !lib.only.includes(name)) continue;
-    Deno.bench({
-      name: lib.name,
-      group: name,
-      baseline: lib.name === "@nktkas/bmp",
-      fn: () => void lib.fn(data),
-    });
-  }
-}
+registerBenches<Uint8Array>(CASES, LIBS);
