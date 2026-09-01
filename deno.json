@@ -7,6 +7,9 @@
     "./decode": "./src/decode/mod.ts",
     "./encode": "./src/encode/mod.ts"
   },
+  "tasks": {
+    "check": "deno fmt --check && deno lint && deno check"
+  },
   "fmt": {
     "lineWidth": 120
   },
