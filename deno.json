@@ -1,16 +1,20 @@
 {
   "name": "@nktkas/bmp",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "license": "MIT",
   "exports": {
     ".": "./src/mod.ts",
     "./decode": "./src/decode/mod.ts",
     "./encode": "./src/encode/mod.ts"
   },
+  "tasks": {
+    "check": "deno fmt --check && deno lint && deno check"
+  },
   "fmt": {
     "lineWidth": 120
   },
   "publish": {
     "exclude": ["tests/", "bench/", ".github/"]
-  }
+  },
+  "lock": false
 }

@@ -1,7 +1,9 @@
 // deno-lint-ignore-file no-import-prefix
 
 /**
- * Encode benchmark against other BMP libraries, on generated images (bench/_corpus.ts).
+ * Encode benchmark against other BMP libraries, over the shared corpus.
+ *
+ * @module
  */
 
 import { Buffer } from "node:buffer";
@@ -9,26 +11,23 @@ import bmpjs from "npm:bmp-js@^0.1.0";
 import * as fast_bmp from "npm:fast-bmp@^4.0.1";
 import * as nktkas_bmp from "../src/mod.ts";
 import type { RawImageData } from "../src/mod.ts";
-import { type BenchName, DEFAULT_SIZE, genPhoto, PERF_CASES } from "./_corpus.ts";
+import { type BenchLib, DEFAULT_SIZE, genPhoto, PERF_CASES, registerBenches } from "./_corpus.ts";
 
-interface BenchLib {
-  name: string;
-  fn: (data: RawImageData & { bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32; compression: 0 | 1 | 2 | 3 }) => unknown;
-  only?: BenchName[];
+/** The image every case is built from, and the ABGR copy bmp-js takes. */
+const PHOTO = genPhoto(DEFAULT_SIZE, DEFAULT_SIZE);
+const PHOTO_ABGR = Buffer.alloc(PHOTO.width * PHOTO.height * 4);
+for (let i = 0; i < PHOTO.width * PHOTO.height; i++) {
+  const si = i * PHOTO.channels;
+  PHOTO_ABGR[i * 4] = 255;
+  PHOTO_ABGR[i * 4 + 1] = PHOTO.data[si + 2];
+  PHOTO_ABGR[i * 4 + 2] = PHOTO.data[si + 1];
+  PHOTO_ABGR[i * 4 + 3] = PHOTO.data[si];
 }
 
-// bmp-js takes an ABGR buffer; build it once
-const photo = genPhoto(DEFAULT_SIZE, DEFAULT_SIZE);
-const photoAbgr = Buffer.alloc(photo.width * photo.height * 4);
-for (let i = 0; i < photo.width * photo.height; i++) {
-  const si = i * photo.channels;
-  photoAbgr[i * 4] = 255;
-  photoAbgr[i * 4 + 1] = photo.data[si + 2];
-  photoAbgr[i * 4 + 2] = photo.data[si + 1];
-  photoAbgr[i * 4 + 3] = photo.data[si];
-}
+/** The input every encode benchmark takes: an image plus the format to write it in. */
+type EncodeInput = RawImageData & { bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32; compression: 0 | 1 | 2 | 3 };
 
-const libs: BenchLib[] = [
+const LIBS: BenchLib<EncodeInput>[] = [
   {
     name: "@nktkas/bmp",
     fn: (d) => nktkas_bmp.encode(d, { bitsPerPixel: d.bitsPerPixel, compression: d.compression }),
@@ -40,12 +39,12 @@ const libs: BenchLib[] = [
   },
   {
     name: "bmp-js",
-    fn: () => bmpjs.encode({ data: photoAbgr, width: photo.width, height: photo.height }),
+    fn: () => bmpjs.encode({ data: PHOTO_ABGR, width: PHOTO.width, height: PHOTO.height }),
     only: ["BI_RGB: 24 bit"],
   },
 ];
 
-const cases = PERF_CASES.map((c) => ({
+const CASES = PERF_CASES.map((c) => ({
   name: c.name,
   data: {
     ...c.gen(DEFAULT_SIZE, DEFAULT_SIZE),
@@ -54,14 +53,4 @@ const cases = PERF_CASES.map((c) => ({
   },
 }));
 
-for (const { name, data } of cases) {
-  for (const lib of libs) {
-    if (lib.only && !lib.only.includes(name)) continue;
-    Deno.bench({
-      name: lib.name,
-      group: name,
-      baseline: lib.name === "@nktkas/bmp",
-      fn: () => void lib.fn(data),
-    });
-  }
-}
+registerBenches<EncodeInput>(CASES, LIBS);

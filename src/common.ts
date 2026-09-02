@@ -1,11 +1,12 @@
 /**
  * Shared types and utilities for BMP encoding/decoding.
+ *
  * @module
  */
 
-// ============================================================
+// =====================================================================================================================
 // Types
-// ============================================================
+// =====================================================================================================================
 
 /** Raw pixel data in grayscale, RGB, or RGBA format. */
 export interface RawImageData {
@@ -87,9 +88,26 @@ export interface BmpHeader {
   alphaMask: number;
 }
 
-// ============================================================
+// =====================================================================================================================
 // Constants
-// ============================================================
+// =====================================================================================================================
+
+/** Bytes of the BMP file header, which precedes the DIB header in every variant. */
+export const FILE_HEADER_SIZE = 14;
+
+/** Five bits per channel, red highest, top bit unused. This is the layout of every uncompressed 16-bit BMP. */
+export const RGB555_MASKS: BitfieldMasks = { redMask: 0x7C00, greenMask: 0x03E0, blueMask: 0x001F };
+
+/** Six bits of green, five of red and blue. The encoder writes these when a 16-bit bitfields image names none. */
+export const RGB565_MASKS: BitfieldMasks = { redMask: 0xF800, greenMask: 0x07E0, blueMask: 0x001F };
+
+/** One byte per channel, alpha in the high byte. Both ends fall back to these at 32bpp. */
+export const BGRA8888_MASKS: BitfieldMasks = {
+  redMask: 0x00FF0000,
+  greenMask: 0x0000FF00,
+  blueMask: 0x000000FF,
+  alphaMask: 0xFF000000,
+};
 
 /**
  * BMP compression methods (the `biCompression` field).
@@ -115,18 +133,84 @@ export const CompressionTypes = {
   BI_ALPHABITFIELDS: 6,
 } as const satisfies Record<string, number>;
 
-/** A BMP compression method value (see {@link CompressionTypes}). */
+/** A BMP compression method value (see {@linkcode CompressionTypes}). */
 export type CompressionType = typeof CompressionTypes[keyof typeof CompressionTypes];
 
-// ============================================================
-// Utilities
-// ============================================================
+// =====================================================================================================================
+// Errors
+// =====================================================================================================================
 
 /**
- * Derive absolute dimensions and row order from the signed width/height stored in the BMP header.
+ * Why a {@linkcode BmpError} was thrown, in a form code can branch on:
+ * - `"INVALID_SIGNATURE"`: The bytes do not begin with a BMP file header.
+ * - `"UNSUPPORTED_HEADER"`: The DIB header size matches no BMP header version this package reads.
+ * - `"UNSUPPORTED_DEPTH"`: The BMP format defines no pixel layout for this depth under this compression.
+ * - `"UNSUPPORTED_COMPRESSION"`: The compression method is one this package does not implement.
+ * - `"EMBEDDED_IMAGE"`: The pixel data is a complete JPEG or PNG; {@linkcode extractCompressedData} returns it.
+ * - `"INVALID_DIMENSIONS"`: The dimensions are not positive, or too large to allocate a buffer for.
+ * - `"INVALID_DATA_SIZE"`: The pixel buffer length is not width x height x channels.
+ * - `"INCOMPATIBLE_OPTIONS"`: The given depth, compression, row order and palette do not fit together.
+ * - `"MALFORMED_FILE"`: The file is shorter than its header declares.
+ */
+export type BmpErrorCode =
+  | "INVALID_SIGNATURE"
+  | "UNSUPPORTED_HEADER"
+  | "UNSUPPORTED_DEPTH"
+  | "UNSUPPORTED_COMPRESSION"
+  | "EMBEDDED_IMAGE"
+  | "INVALID_DIMENSIONS"
+  | "INVALID_DATA_SIZE"
+  | "INCOMPATIBLE_OPTIONS"
+  | "MALFORMED_FILE";
+
+/**
+ * Every failure of this package is reported as this class; {@linkcode BmpErrorCode} says which.
+ *
+ * An error raised outside the package is wrapped in one of these, with the original in `cause`.
+ *
+ * @typeParam C The code this error carries.
+ *
+ * @example
+ * ```ts
+ * import { BmpError, decode } from "@nktkas/bmp";
+ *
+ * try {
+ *   decode(await Deno.readFile("image.bmp"));
+ * } catch (error) {
+ *   if (error instanceof BmpError && error.code === "EMBEDDED_IMAGE") console.log("the pixels are a JPEG or PNG");
+ * }
+ * ```
+ */
+export class BmpError<C extends BmpErrorCode = BmpErrorCode> extends Error {
+  /** Prints as `BmpError: …` instead of `Error: …`. */
+  override readonly name = "BmpError";
+
+  /** Why the call failed. */
+  readonly code: C;
+
+  /**
+   * Creates an error with the given code.
+   *
+   * @param code Why the call failed.
+   * @param message What went wrong, naming the values involved.
+   * @param options Forwarded to `Error`.
+   */
+  constructor(code: C, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.code = code;
+  }
+}
+
+// =====================================================================================================================
+// Utilities
+// =====================================================================================================================
+
+/**
+ * Derives absolute dimensions and row order from the signed width/height stored in the BMP header.
  *
  * @param width Image width (signed).
  * @param height Image height (signed: positive = bottom-up, negative = top-down).
+ *
  * @return Absolute dimensions and whether rows are stored top-down.
  */
 export function getImageLayout(width: number, height: number): {
@@ -142,10 +226,11 @@ export function getImageLayout(width: number, height: number): {
 }
 
 /**
- * Calculate the byte stride (bytes per row) for a BMP image.
+ * Calculates the byte stride (bytes per row) for a BMP image.
  *
  * @param width Image width in pixels.
  * @param bitsPerPixel Bits per pixel.
+ *
  * @return Bytes per row, padded to a 4-byte boundary.
  */
 export function calculateStride(width: number, bitsPerPixel: number): number {
@@ -154,30 +239,35 @@ export function calculateStride(width: number, bitsPerPixel: number): number {
 }
 
 /**
- * Validate image dimensions before allocating pixel buffers.
+ * Rejects image dimensions too absurd to allocate a pixel buffer for.
  *
- * A BMP header can declare arbitrary 32-bit dimensions; the cap rejects absurd values (e.g. a tiny
- * malicious file claiming 10^12 pixels) before any buffer is allocated, while staying far above any
- * real-world image.
+ * A 32-bit header field lets a small file declare 10^12 pixels. The cap is above any real image size
+ * and is checked before allocation.
  *
  * @param width Absolute image width in pixels.
  * @param height Absolute image height in pixels.
- * @throws {Error} If either dimension is non-positive or the total pixel count is too large.
+ *
+ * @throws {BmpError} `INVALID_DIMENSIONS`, when either dimension is not positive, or the two multiply out
+ *                    past the cap.
  */
 export function validateImageSize(width: number, height: number): void {
   const MAX_IMAGE_PIXELS = 1 << 30;
   if (width <= 0 || height <= 0) {
-    throw new Error(`Invalid image dimensions: ${width}x${height}`);
+    throw new BmpError("INVALID_DIMENSIONS", `Invalid image dimensions: ${width}x${height}`);
   }
   if (width * height > MAX_IMAGE_PIXELS) {
-    throw new Error(`Image dimensions too large: ${width}x${height} exceeds ${MAX_IMAGE_PIXELS} pixels`);
+    throw new BmpError(
+      "INVALID_DIMENSIONS",
+      `Image dimensions too large: ${width}x${height} exceeds ${MAX_IMAGE_PIXELS} pixels`,
+    );
   }
 }
 
 /**
- * Analyze a bit mask to find where the channel bits start and how many there are.
+ * Analyzes a bit mask to find where the channel bits start and how many there are.
  *
  * @param mask Bit mask for a single color channel.
+ *
  * @return `shift` — position of the lowest set bit; `bits` — number of consecutive set bits.
  */
 export function analyzeBitMask(mask: number): { shift: number; bits: number } {
@@ -185,14 +275,12 @@ export function analyzeBitMask(mask: number): { shift: number; bits: number } {
 
   let temp = mask;
 
-  // Count trailing zeros to find the shift amount
   let shift = 0;
   while ((temp & 1) === 0) {
     shift++;
     temp >>>= 1;
   }
 
-  // Count consecutive 1-bits to find the channel depth
   let bits = 0;
   while ((temp & 1) === 1) {
     bits++;

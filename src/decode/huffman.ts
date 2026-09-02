@@ -8,25 +8,27 @@
  *
  * The lookup tables below are defined by the CCITT Group 3 standard.
  *
+ * @see https://www.itu.int/rec/T-REC-T.4
+ *
  * @module
  */
 
 import { type BmpHeader, getImageLayout, type RawImageData } from "../common.ts";
-import { extractPalette } from "./palette.ts";
+import { extractPalette, type FlatPalette } from "./palette.ts";
 
-// ============================================================
+// =====================================================================================================================
 // Huffman trie
-// ============================================================
+// =====================================================================================================================
 
 /** Node in a binary trie for Huffman code lookup. */
 interface TrieNode {
-  /** Run length value (only defined at leaf nodes). */
+  /** Run length of the code that ends at this node; `-1` when no code ends here. */
   value: number;
   /** Child nodes: index 0 for bit 0, index 1 for bit 1. */
   children: [TrieNode | null, TrieNode | null];
 }
 
-/** Merged trie containing both make-up and terminating codes for one color. */
+/** The make-up and terminating tries of one color. */
 interface RunTries {
   /** Trie for make-up codes (run lengths 64–1728, multiples of 64). */
   makeup: TrieNode;
@@ -35,9 +37,10 @@ interface RunTries {
 }
 
 /**
- * Build a binary trie from a table of bit-string codes → run lengths.
+ * Builds a binary trie from a table of bit-string codes → run lengths.
  *
  * @param table Map of bit-string codes to run length values.
+ *
  * @return Root node of the constructed trie.
  */
 function buildTrie(table: Record<string, number>): TrieNode {
@@ -56,11 +59,11 @@ function buildTrie(table: Record<string, number>): TrieNode {
   return root;
 }
 
-// ============================================================
+// =====================================================================================================================
 // Huffman code tables (CCITT Group 3 1D standard)
-// ============================================================
+// =====================================================================================================================
 
-// --- White run codes ---------------------------------------------
+// --- White run codes -------------------------------------------------------------------------------------------------
 
 /** White terminating codes: bit patterns → run lengths 0–63. */
 const WHITE_TERMINATING: Record<string, number> = {
@@ -161,7 +164,7 @@ const WHITE_MAKEUP: Record<string, number> = {
   "010011011": 1728,
 };
 
-// --- Black run codes ---------------------------------------------
+// --- Black run codes -------------------------------------------------------------------------------------------------
 
 /** Black terminating codes: bit patterns → run lengths 0–63. */
 const BLACK_TERMINATING: Record<string, number> = {
@@ -262,91 +265,98 @@ const BLACK_MAKEUP: Record<string, number> = {
   "0000001100101": 1728,
 };
 
-// Build tries once at module load time
+/** Length in bits of the shortest code in any of the tables. */
+const MIN_CODE_BITS = 2;
+
+/** Tries for the codes of a white run. */
 const WHITE_TRIES: RunTries = { makeup: buildTrie(WHITE_MAKEUP), terminating: buildTrie(WHITE_TERMINATING) };
+
+/** Tries for the codes of a black run. */
 const BLACK_TRIES: RunTries = { makeup: buildTrie(BLACK_MAKEUP), terminating: buildTrie(BLACK_TERMINATING) };
 
-// ============================================================
+// =====================================================================================================================
 // Bit reader
-// ============================================================
+// =====================================================================================================================
 
-/** Read individual bits from a byte array, MSB first. */
+/** A reader that takes bits out of a byte array, MSB first. */
 class BitReader {
   /** Source byte array. */
-  protected data: Uint8Array;
+  private _data: Uint8Array;
   /** Current bit position within the data. */
-  protected bitPos: number;
+  private _bitPos: number;
   /** Total number of bits available. */
-  protected totalBits: number;
+  private _totalBits: number;
 
   /**
-   * Create a new bit reader.
+   * Creates a reader positioned at the first bit of `startByte`.
    *
    * @param data Source byte array.
    * @param startByte Byte offset to start reading from.
    */
   constructor(data: Uint8Array, startByte: number) {
-    this.data = data;
-    this.bitPos = startByte * 8;
-    this.totalBits = data.length * 8;
+    this._data = data;
+    this._bitPos = startByte * 8;
+    this._totalBits = data.length * 8;
   }
 
   /**
-   * Read one bit and advance the position.
+   * Reads one bit and advances the position.
    *
    * @return Bit value: 0 or 1.
    */
   readBit(): number {
-    const byteIdx = this.bitPos >>> 3;
-    const bitIdx = 7 - (this.bitPos & 7);
-    this.bitPos++;
-    return (this.data[byteIdx] >>> bitIdx) & 1;
+    const byteIdx = this._bitPos >>> 3;
+    const bitIdx = 7 - (this._bitPos & 7);
+    this._bitPos++;
+    return (this._data[byteIdx] >>> bitIdx) & 1;
   }
 
   /**
-   * Advance position by `n` bits.
+   * Moves the position by `n` bits.
    *
-   * @param n Number of bits to skip.
+   * @param n Bits to move by. A negative value rewinds.
    */
   skip(n: number): void {
-    this.bitPos += n;
+    this._bitPos += n;
   }
 
   /**
-   * Return true if there are at least `n` bits remaining.
+   * Tells whether at least `n` bits are still unread.
    *
    * @param n Minimum number of bits required.
+   *
    * @return `true` if enough bits remain.
    */
   hasAtLeast(n: number): boolean {
-    return this.bitPos + n <= this.totalBits;
+    return this._bitPos + n <= this._totalBits;
   }
 
   /**
-   * Check whether the next 12 bits match the EOL pattern (000000000001).
+   * Tells whether the next 12 bits are the EOL pattern (000000000001), without consuming them.
    *
    * @return `true` if the next 12 bits are an EOL marker.
    */
   isEol(): boolean {
     if (!this.hasAtLeast(12)) return false;
-    let pos = this.bitPos;
+    let pos = this._bitPos;
     for (let i = 0; i < 11; i++) {
-      if (((this.data[pos >>> 3] >>> (7 - (pos & 7))) & 1) !== 0) return false;
+      if (((this._data[pos >>> 3] >>> (7 - (pos & 7))) & 1) !== 0) return false;
       pos++;
     }
-    return ((this.data[pos >>> 3] >>> (7 - (pos & 7))) & 1) === 1;
+    return ((this._data[pos >>> 3] >>> (7 - (pos & 7))) & 1) === 1;
   }
 }
 
-// ============================================================
+// =====================================================================================================================
 // Decoder
-// ============================================================
+// =====================================================================================================================
 
 /**
- * Decode a Modified Huffman (CCITT Group 3 1D) compressed BMP to raw pixel data.
+ * Decodes a Modified Huffman (CCITT Group 3 1D) compressed BMP to raw pixel data.
  *
  * @param bmp Complete BMP file contents.
  * @param header Parsed BMP header (must be 1bpp).
+ *
  * @return Decoded pixel data (grayscale or RGB depending on palette).
  */
 export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData {
@@ -354,81 +364,34 @@ export function decodeHuffman(bmp: Uint8Array, header: BmpHeader): RawImageData 
   const { absWidth, absHeight, isTopDown } = getImageLayout(width, height);
 
   const palette = extractPalette(bmp, header);
-  const palR = palette.red;
-  const palG = palette.green;
-  const palB = palette.blue;
 
   const channels = palette.isGrayscale ? 1 : 3;
   const output = new Uint8Array(absWidth * absHeight * channels);
 
-  // Decompress Huffman data into a flat array of 0/1 palette indices
-  const pixels = decompressHuffman(bmp, dataOffset, absWidth, absHeight);
-
-  // Map palette indices to output pixels, handling row order
-  for (let y = 0; y < absHeight; y++) {
-    const srcY = isTopDown ? y : absHeight - 1 - y;
-    let srcOffset = srcY * absWidth;
-    let dstOffset = y * absWidth * channels;
-
-    if (channels === 1) {
-      for (let x = 0; x < absWidth; x++) {
-        output[dstOffset++] = palR[pixels[srcOffset++]];
-      }
-    } else {
-      for (let x = 0; x < absWidth; x++) {
-        const idx = pixels[srcOffset++];
-        output[dstOffset++] = palR[idx]; // R
-        output[dstOffset++] = palG[idx]; // G
-        output[dstOffset++] = palB[idx]; // B
-      }
-    }
-  }
-
-  return { width: absWidth, height: absHeight, channels, data: output };
-}
-
-/**
- * Decompress Modified Huffman data into a flat array of 0/1 palette indices.
- *
- * @param bmp Complete BMP file contents.
- * @param dataOffset Byte offset to the start of compressed data.
- * @param absWidth Absolute image width in pixels.
- * @param absHeight Absolute image height in pixels.
- * @return Flat array of 0/1 palette indices.
- */
-function decompressHuffman(
-  bmp: Uint8Array,
-  dataOffset: number,
-  absWidth: number,
-  absHeight: number,
-): Uint8Array {
-  const pixels = new Uint8Array(absWidth * absHeight);
   const reader = new BitReader(bmp, dataOffset);
-  let pixelPos = 0;
 
-  // Skip initial EOL marker if present
   if (reader.isEol()) reader.skip(12);
 
   for (let row = 0; row < absHeight; row++) {
+    // Rows arrive in file order, so a bottom-up image fills the output from the last row back.
+    const rowStart = (isTopDown ? row : absHeight - 1 - row) * absWidth * channels;
     let col = 0;
-    let isWhite = true; // Each scan line starts with a white run
+    let isWhite = true;
 
     while (col < absWidth) {
       const runLength = decodeRun(reader, isWhite);
       if (runLength < 0) break;
 
-      // Fill pixels with the current color (0 = white, 1 = black)
-      const colorValue = isWhite ? 0 : 1;
       const end = Math.min(col + runLength, absWidth);
-      while (col < end) {
-        pixels[pixelPos++] = colorValue;
-        col++;
-      }
+      writeRun(output, rowStart, col, end, channels, isWhite ? 0 : 1, palette);
+      col = end;
 
       isWhite = !isWhite;
     }
+    // A line that ran out of codes is filled to its end with the white index.
+    if (col < absWidth) writeRun(output, rowStart, col, absWidth, channels, 0, palette);
 
-    // Scan forward to the next EOL marker to align to the next row
+    // Scan forward to the next EOL marker to align to the next row.
     while (reader.hasAtLeast(12)) {
       if (reader.isEol()) {
         reader.skip(12);
@@ -438,47 +401,77 @@ function decompressHuffman(
     }
   }
 
-  return pixels;
+  return { width: absWidth, height: absHeight, channels, data: output };
 }
 
 /**
- * Decode a single run (white or black) by walking the Huffman tries.
+ * Writes one run of a scan line in its palette color.
+ *
+ * @param output Destination pixel buffer.
+ * @param rowStart Byte offset of the scan line within `output`.
+ * @param from First pixel of the run within the scan line.
+ * @param to One past the last pixel of the run.
+ * @param channels Number of output channels: 1 or 3.
+ * @param index Palette index the run stands for: `0` for white, `1` for black.
+ * @param palette Palette the index points into.
+ */
+function writeRun(
+  output: Uint8Array,
+  rowStart: number,
+  from: number,
+  to: number,
+  channels: number,
+  index: number,
+  palette: FlatPalette,
+): void {
+  if (channels === 1) {
+    output.fill(palette.red[index], rowStart + from, rowStart + to);
+    return;
+  }
+  const r = palette.red[index], g = palette.green[index], b = palette.blue[index];
+  for (let pos = rowStart + from * 3, stop = rowStart + to * 3; pos < stop;) {
+    output[pos++] = r;
+    output[pos++] = g;
+    output[pos++] = b;
+  }
+}
+
+/**
+ * Decodes a single run (white or black) by walking the Huffman tries.
  *
  * @param reader Bit reader positioned at the start of the run code.
  * @param isWhite Whether to decode a white run (true) or black run (false).
+ *
  * @return Run length, or -1 if no valid code was found.
  */
 function decodeRun(reader: BitReader, isWhite: boolean): number {
   const tries = isWhite ? WHITE_TRIES : BLACK_TRIES;
   let totalLength = 0;
 
-  // Decode make-up codes (for runs >= 64 pixels)
-  while (reader.hasAtLeast(2)) {
+  // A run is any number of make-up codes, each 64 pixels or more, then one terminating code.
+  while (reader.hasAtLeast(MIN_CODE_BITS)) {
     const value = walkTrie(reader, tries.makeup);
     if (value < 0) break;
     totalLength += value;
   }
 
-  // Decode the required terminating code (run length 0–63)
-  if (reader.hasAtLeast(2)) {
+  if (reader.hasAtLeast(MIN_CODE_BITS)) {
     const value = walkTrie(reader, tries.terminating);
-    if (value >= 0) {
-      return totalLength + value;
-    }
+    if (value >= 0) return totalLength + value;
   }
 
-  // Check for end-of-line marker
   if (reader.isEol()) return -1;
 
-  // Return partial result if make-up codes were found
+  // No terminating code followed, so the make-up codes are the whole run.
   return totalLength > 0 ? totalLength : -1;
 }
 
 /**
- * Walk a Huffman trie bit-by-bit.
+ * Walks a Huffman trie bit-by-bit.
  *
  * @param reader Bit reader to consume bits from.
  * @param root Root node of the Huffman trie.
+ *
  * @return Decoded value, or -1 if no match.
  */
 function walkTrie(reader: BitReader, root: TrieNode): number {
@@ -490,12 +483,10 @@ function walkTrie(reader: BitReader, root: TrieNode): number {
     bitsRead++;
     node = node.children[bit];
 
-    if (node && node.value >= 0) {
-      return node.value; // Found a complete code
-    }
+    if (node && node.value >= 0) return node.value;
   }
 
-  // No match found — rewind the bits we consumed
+  // Rewind: a failed walk must not consume bits.
   reader.skip(-bitsRead);
   return -1;
 }

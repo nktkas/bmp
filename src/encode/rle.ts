@@ -5,11 +5,13 @@
  * Both use the same general scheme: runs of identical pixels are stored as
  * (count, value) pairs, while non-repeating sequences use "absolute mode".
  *
+ * @see https://learn.microsoft.com/windows/win32/gdi/bitmap-compression
+ *
  * @module
  */
 
 import type { Color, RawImageData } from "../common.ts";
-import { convertToIndexed, generateGrayscalePalette, generatePalette } from "./quantize.ts";
+import { toIndexed } from "./quantize.ts";
 
 /** Result of RLE encoding: compressed pixel data and the palette used. */
 export interface EncodedRleData {
@@ -24,29 +26,31 @@ interface RleEncodeCallbacks {
   /** Bit mask for comparing pixel values. */
   mask: number;
   /**
-   * Write an encoded-mode entry.
+   * Writes an encoded-mode entry.
    *
    * @param output Destination buffer.
    * @param pos Current write position.
    * @param index Palette index to encode.
    * @param count Number of repetitions.
+   *
    * @return New write position.
    */
   writeEncoded(output: Uint8Array, pos: number, index: number, count: number): number;
   /**
-   * Write an absolute-mode block.
+   * Writes an absolute-mode block.
    *
    * @param output Destination buffer.
    * @param pos Current write position.
    * @param data Palette indices to write (subarray starting at the block).
    * @param count Number of pixels in the block.
+   *
    * @return New write position.
    */
   writeAbsolute(output: Uint8Array, pos: number, data: Uint8Array, count: number): number;
 }
 
 /** RLE8: one byte per pixel index, word-aligned absolute blocks. */
-const rle8Callbacks: RleEncodeCallbacks = {
+const RLE8_CALLBACKS: RleEncodeCallbacks = {
   mask: 0xFF,
   writeEncoded(output, pos, index, count): number {
     output[pos++] = count;
@@ -65,7 +69,7 @@ const rle8Callbacks: RleEncodeCallbacks = {
 };
 
 /** RLE4: nibble-packed values, nibble-packed absolute blocks. */
-const rle4Callbacks: RleEncodeCallbacks = {
+const RLE4_CALLBACKS: RleEncodeCallbacks = {
   mask: 0x0F,
   writeEncoded(output, pos, index, count): number {
     const val = index & 0x0F;
@@ -88,74 +92,58 @@ const rle4Callbacks: RleEncodeCallbacks = {
 };
 
 /**
- * Encode image data with RLE8 compression (8-bit, 256-color).
+ * Encodes image data with RLE8 compression (8-bit, 256-color).
  *
  * @param raw Source pixel data.
  * @param palette Custom 256-color palette. If omitted, one is auto-generated.
+ *
  * @return Compressed pixel data and palette.
  */
 export function encodeRle8(raw: RawImageData, palette?: Color[]): EncodedRleData {
-  return encodeRle(raw, 256, rle8Callbacks, palette);
+  return encodeRle(raw, 256, RLE8_CALLBACKS, palette);
 }
 
 /**
- * Encode image data with RLE4 compression (4-bit, 16-color).
+ * Encodes image data with RLE4 compression (4-bit, 16-color).
  *
  * @param raw Source pixel data.
  * @param palette Custom 16-color palette. If omitted, one is auto-generated.
+ *
  * @return Compressed pixel data and palette.
  */
 export function encodeRle4(raw: RawImageData, palette?: Color[]): EncodedRleData {
-  return encodeRle(raw, 16, rle4Callbacks, palette);
+  return encodeRle(raw, 16, RLE4_CALLBACKS, palette);
 }
 
 /**
- * Shared encode pipeline: palette resolution → quantization → RLE compression.
+ * Shared encode pipeline: quantization to the palette, then RLE compression of the indices.
  *
  * @param raw Source pixel data.
  * @param numColors Target palette size.
  * @param callbacks Format-specific encoding callbacks.
- * @param palette Custom palette. If omitted, one is auto-generated.
+ * @param palette Custom palette. Omitting it builds one from the image.
+ *
  * @return Compressed pixel data and palette.
  */
 function encodeRle(
   raw: RawImageData,
-  numColors: number,
+  numColors: 16 | 256,
   callbacks: RleEncodeCallbacks,
   palette?: Color[],
 ): EncodedRleData {
-  const finalPalette = preparePalette(raw, palette, numColors);
-  const indices = convertToIndexed(raw, finalPalette);
-  const pixelData = encodeRlePixels(indices, raw.width, raw.height, callbacks);
-  return { pixelData, palette: finalPalette };
+  const indexed = toIndexed(raw, numColors, palette);
+  const pixelData = encodeRlePixels(indexed.indices, raw.width, raw.height, callbacks);
+  return { pixelData, palette: indexed.palette };
 }
 
 /**
- * Resolve the palette: use provided one if large enough, otherwise auto-generate.
- *
- * @param raw Source pixel data.
- * @param palette Custom palette or undefined.
- * @param numColors Required palette size.
- * @return Resolved palette.
- */
-function preparePalette(
-  raw: RawImageData,
-  palette: Color[] | undefined,
-  numColors: number,
-): Color[] {
-  if (palette && palette.length >= numColors) {
-    return palette.slice(0, numColors);
-  }
-  return raw.channels === 1 ? generateGrayscalePalette(numColors) : generatePalette(raw, numColors);
-}
-
-/**
- * Find the length of a run of identical values, capped at 255.
+ * Finds the length of a run of identical values, capped at 255.
  *
  * @param indices Palette index array.
  * @param offset Start position in the array.
  * @param remaining Number of pixels left in the row.
  * @param mask Bit mask for comparing values.
+ *
  * @return Run length (1–255).
  */
 function findRunLength(indices: Uint8Array, offset: number, remaining: number, mask: number): number {
@@ -174,6 +162,7 @@ function findRunLength(indices: Uint8Array, offset: number, remaining: number, m
  * @param width Image width in pixels.
  * @param height Image height in pixels.
  * @param callbacks Format-specific encoding callbacks.
+ *
  * @return RLE-compressed pixel data.
  */
 function encodeRlePixels(
@@ -182,7 +171,7 @@ function encodeRlePixels(
   height: number,
   callbacks: RleEncodeCallbacks,
 ): Uint8Array {
-  // Worst case: 2 bytes per pixel (single-pixel runs) + 2 per row (EOL) + 2 (EOF)
+  // Worst case: 2 bytes per pixel (single-pixel runs) + 2 per row (EOL) + 2 (EOF).
   const output = new Uint8Array(width * height * 2 + height * 2 + 2);
   let pos = 0;
 
@@ -193,12 +182,11 @@ function encodeRlePixels(
     while (x < width) {
       const runLength = findRunLength(indices, rowStart + x, width - x, callbacks.mask);
 
-      if (runLength >= 3) {
-        // Encoded mode: repeat one value
+      if (runLength >= 3) { // Encoded mode
         pos = callbacks.writeEncoded(output, pos, indices[rowStart + x], runLength);
         x += runLength;
       } else {
-        // Collect non-repeating pixels for absolute mode
+        // Absolute mode: gather pixels up to the next run of three or more.
         const absoluteStart = x;
         let absoluteCount = 0;
 
@@ -211,7 +199,7 @@ function encodeRlePixels(
         if (absoluteCount >= 3) {
           pos = callbacks.writeAbsolute(output, pos, indices.subarray(rowStart + absoluteStart), absoluteCount);
         } else {
-          // Too short for absolute mode — write as single-pixel encoded runs
+          // An absolute block costs 2 bytes of header, which below three pixels is not repaid.
           for (let i = 0; i < absoluteCount; i++) {
             pos = callbacks.writeEncoded(output, pos, indices[rowStart + absoluteStart + i], 1);
           }
@@ -219,7 +207,7 @@ function encodeRlePixels(
       }
     }
 
-    // End-of-line marker between rows only
+    // End-of-line marker between rows only.
     if (y > 0) {
       output[pos++] = 0x00; // Escape
       output[pos++] = 0x00; // End of line

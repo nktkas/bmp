@@ -8,21 +8,20 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { join } from "jsr:@std/path@1";
 import sharp from "npm:sharp@^0.34.5";
-import { decode, extractCompressedData, type RawImageData } from "../src/mod.ts";
+import { BmpError, decode, extractCompressedData, type RawImageData } from "../src/mod.ts";
 import { assertPixelsMatch, SUITE_DIR } from "./_utils.ts";
 
-/** Compares decoded BMP with PNG reference. */
+/** Decodes one suite file and compares it against the PNG the suite ships beside it. */
 async function runTest(filePath: string) {
   const bmpBuffer = await Deno.readFile(join(SUITE_DIR, filePath));
   const pngBuffer = await Deno.readFile(join(SUITE_DIR, filePath.replace(/\.bmp$/, ".png")));
 
-  // Decode BMP
   let bmp: RawImageData;
   try {
     bmp = decode(bmpBuffer);
   } catch (error) {
-    // For BI_JPEG and BI_PNG, test extractCompressedData instead
-    if (error instanceof Error && error.message.includes('Use "extractCompressedData" to')) {
+    // An embedded JPEG or PNG is read through `extractCompressedData`, as the docs prescribe.
+    if (error instanceof BmpError && error.code === "EMBEDDED_IMAGE") {
       const extracted = extractCompressedData(bmpBuffer);
       const raw = await sharp(extracted.data).raw().toBuffer({ resolveWithObject: true });
       bmp = {
@@ -36,10 +35,9 @@ async function runTest(filePath: string) {
     }
   }
 
-  // Decode PNG using sharp
   const png = await sharp(pngBuffer).raw().toBuffer({ resolveWithObject: true });
 
-  // Allow very small differences (different rounding strategies between our decoder and the PNG reference).
+  // The tolerance covers rounding that differs between our channel scaling and the reference renderer's.
   assertPixelsMatch(bmp, {
     width: png.info.width,
     height: png.info.height,
@@ -48,51 +46,48 @@ async function runTest(filePath: string) {
   }, 0.004);
 }
 
-Deno.test("Decode", async (t) => {
-  await t.step("'good' BMPs", async (t) => {
-    for await (const entry of Deno.readDir(join(SUITE_DIR, "g"))) {
-      if (!entry.name.endsWith(".bmp")) continue;
+Deno.test("decode() matches the reference image for every 'good' file", async (t) => {
+  for await (const entry of Deno.readDir(join(SUITE_DIR, "g"))) {
+    if (!entry.name.endsWith(".bmp")) continue;
 
-      await t.step(entry.name, async () => {
-        await runTest(`g/${entry.name}`);
-      });
-    }
-  });
+    await t.step(entry.name, async () => {
+      await runTest(`g/${entry.name}`);
+    });
+  }
+});
 
-  await t.step("'questionable' BMPs", async (t) => {
-    // rgb24prof2.bmp relies on an embedded ICC profile to correct swapped channels; we don't apply ICC profiles.
-    const ignored = new Set(["rgb24prof2.bmp"]);
+Deno.test("decode() matches the reference image for every 'questionable' file", async (t) => {
+  // rgb24prof2.bmp relies on an embedded ICC profile to correct swapped channels; we don't apply ICC profiles.
+  const ignored = new Set(["rgb24prof2.bmp"]);
 
-    for await (const entry of Deno.readDir(join(SUITE_DIR, "q"))) {
-      if (!entry.name.endsWith(".bmp")) continue;
+  for await (const entry of Deno.readDir(join(SUITE_DIR, "q"))) {
+    if (!entry.name.endsWith(".bmp")) continue;
 
-      await t.step({
-        name: entry.name,
-        ignore: ignored.has(entry.name),
-        fn: async () => {
-          await runTest(`q/${entry.name}`);
-        },
-      });
-    }
-  });
+    await t.step({
+      name: entry.name,
+      ignore: ignored.has(entry.name),
+      fn: async () => {
+        await runTest(`q/${entry.name}`);
+      },
+    });
+  }
+});
 
-  await t.step("'bad' BMPs (crash safety)", async (t) => {
-    for await (const entry of Deno.readDir(join(SUITE_DIR, "b"))) {
-      if (!entry.name.endsWith(".bmp")) continue;
+Deno.test("decode() either returns a self-consistent image or throws on every malformed file", async (t) => {
+  for await (const entry of Deno.readDir(join(SUITE_DIR, "b"))) {
+    if (!entry.name.endsWith(".bmp")) continue;
 
-      await t.step(entry.name, async () => {
-        const buf = await Deno.readFile(join(SUITE_DIR, "b", entry.name));
-        // A decoder must never hard-crash on bad input: either decode to a self-consistent
-        // buffer, or throw a catchable Error. Pixel output on broken input is not asserted.
-        try {
-          const r = decode(buf);
-          assert(Number.isInteger(r.width) && r.width >= 0);
-          assert(Number.isInteger(r.height) && r.height >= 0);
-          assertEquals(r.data.length, r.width * r.height * r.channels);
-        } catch (err) {
-          assert(err instanceof Error);
-        }
-      });
-    }
-  });
+    await t.step(entry.name, async () => {
+      const buf = await Deno.readFile(join(SUITE_DIR, "b", entry.name));
+      // The pixel values are not asserted: on input this broken there is no correct output to compare with.
+      try {
+        const r = decode(buf);
+        assert(Number.isInteger(r.width) && r.width >= 0);
+        assert(Number.isInteger(r.height) && r.height >= 0);
+        assertEquals(r.data.length, r.width * r.height * r.channels);
+      } catch (err) {
+        assert(err instanceof BmpError, `A malformed file must fail with our own error, got ${err}`);
+      }
+    });
+  }
 });

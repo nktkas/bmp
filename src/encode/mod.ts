@@ -21,55 +21,97 @@
  * @module
  */
 
-import { type BitfieldMasks, type Color, CompressionTypes, type RawImageData } from "../common.ts";
+import {
+  BGRA8888_MASKS,
+  type BitfieldMasks,
+  BmpError,
+  type BmpErrorCode,
+  type Color,
+  CompressionTypes,
+  type RawImageData,
+  RGB565_MASKS,
+  validateImageSize,
+} from "../common.ts";
 import { encodeBitfields } from "./bitfields.ts";
-import { type HeaderType, writeHeader } from "./header.ts";
+import { headerLength, type HeaderType, writeHeader } from "./header.ts";
 import { encodeRgb } from "./rgb.ts";
 import { encodeRle4, encodeRle8 } from "./rle.ts";
 
-export type { BitfieldMasks, Color, RawImageData };
+export { BmpError };
+export type { BitfieldMasks, BmpErrorCode, Color, HeaderType, RawImageData };
 
-/** Options for encoding a BMP image. */
+/** Options of {@linkcode encode}. */
 export interface EncodeOptions {
   /**
-   * Bits per pixel (1, 4, 8, 16, 24, or 32).
-   * Default: auto-detected from channels (`1`→`8`, `3`→`24`, `4`→`32`).
+   * Bit depth to encode at.
+   *
+   * @default Follows `raw.channels`: 8 for grayscale, 24 for RGB, 32 for RGBA.
    */
   bitsPerPixel?: 1 | 4 | 8 | 16 | 24 | 32;
 
   /**
-   * Compression method (0=BI_RGB, 1=BI_RLE8, 2=BI_RLE4,
-   * 3=BI_BITFIELDS, 6=BI_ALPHABITFIELDS).
-   * Default: `0` (BI_RGB).
+   * Compression method:
+   * - `0`: BI_RGB, uncompressed.
+   * - `1`: BI_RLE8, run-length encoded, 8bpp only.
+   * - `2`: BI_RLE4, run-length encoded, 4bpp only.
+   * - `3`: BI_BITFIELDS, channel masks, 16 or 32bpp.
+   * - `6`: BI_ALPHABITFIELDS, channel masks with alpha, 32bpp only.
+   *
+   * @default 0
    */
   compression?: 0 | 1 | 2 | 3 | 6;
 
   /**
-   * Header format: "BITMAPINFOHEADER" (40 bytes),
-   * "BITMAPV4HEADER" (108 bytes), or "BITMAPV5HEADER" (124 bytes).
-   * Default: `"BITMAPINFOHEADER"`.
+   * DIB header format to write.
+   *
+   * @default "BITMAPINFOHEADER"
    */
   headerType?: HeaderType;
 
-  /** If true, rows are stored top-down instead of the default bottom-up. Default: `false`. */
+  /**
+   * Store rows top-down instead of bottom-up.
+   *
+   * @default false
+   */
   isTopDown?: boolean;
 
-  /** Custom color palette for indexed formats (1/4/8-bit). Auto-generated if omitted. */
+  /**
+   * Palette for the indexed depths (1, 4, 8), holding at least as many colors as the depth addresses;
+   * anything past that count is dropped. Omitting it quantizes the image down to a palette of its own.
+   */
   palette?: Color[];
 
   /**
-   * Custom bit masks for BI_BITFIELDS/BI_ALPHABITFIELDS.
-   * Defaults: RGB565 for 16-bit, BGRA8888 for 32-bit.
+   * Channel masks for the two bitfield compressions.
+   *
+   * @default RGB565 at 16bpp, BGRA8888 at 32bpp.
    */
   bitfields?: BitfieldMasks;
 }
 
 /**
- * Encode raw pixel data into a complete BMP file.
+ * Encodes raw pixel data into a complete BMP file.
  *
  * @param raw Source pixel data (grayscale, RGB, or RGBA).
  * @param options Encoding options.
+ *
  * @return Complete BMP file as a byte array.
+ *
+ * @throws {BmpError} `INVALID_DIMENSIONS`, `INVALID_DATA_SIZE`, or `INCOMPATIBLE_OPTIONS`.
+ *
+ * @example
+ * ```ts
+ * import { encode } from "@nktkas/bmp/encode";
+ *
+ * const raw = {
+ *   width: 2,
+ *   height: 2,
+ *   channels: 3 as const,
+ *   data: new Uint8Array([0, 0, 0, 255, 255, 255, 0, 0, 0, 255, 255, 255]), // 2x2 checkerboard
+ * };
+ * const bmp = encode(raw);
+ * await Deno.writeFile("output.bmp", bmp);
+ * ```
  */
 export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Array {
   const bitsPerPixel = options.bitsPerPixel ?? getDefaultBitsPerPixel(raw.channels);
@@ -77,48 +119,32 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
   const headerType = options.headerType ?? "BITMAPINFOHEADER";
   const isTopDown = options.isTopDown ?? false;
 
-  validateOptions(raw, bitsPerPixel, compression, isTopDown);
+  validateOptions(raw, bitsPerPixel, compression, isTopDown, options.palette);
 
-  // Encode pixel data
   let pixelData: Uint8Array;
   let palette: Color[] | undefined;
   let bitfields: BitfieldMasks | undefined;
 
   switch (compression) {
-    case CompressionTypes.BI_RGB: {
-      const result = encodeRgb(raw, bitsPerPixel, isTopDown, options.palette);
-      pixelData = result.pixelData;
-      palette = result.palette;
+    case CompressionTypes.BI_RGB:
+      ({ pixelData, palette } = encodeRgb(raw, bitsPerPixel, isTopDown, options.palette));
       break;
-    }
 
-    case CompressionTypes.BI_RLE8: {
-      const result = encodeRle8(raw, options.palette);
-      pixelData = result.pixelData;
-      palette = result.palette;
+    case CompressionTypes.BI_RLE8:
+      ({ pixelData, palette } = encodeRle8(raw, options.palette));
       break;
-    }
 
-    case CompressionTypes.BI_RLE4: {
-      const result = encodeRle4(raw, options.palette);
-      pixelData = result.pixelData;
-      palette = result.palette;
+    case CompressionTypes.BI_RLE4:
+      ({ pixelData, palette } = encodeRle4(raw, options.palette));
       break;
-    }
-
-    case CompressionTypes.BI_BITFIELDS:
-    case CompressionTypes.BI_ALPHABITFIELDS: {
-      bitfields = options.bitfields ?? getDefaultBitfieldMasks(bitsPerPixel as 16 | 32);
-      pixelData = encodeBitfields(raw, bitsPerPixel as 16 | 32, bitfields, isTopDown);
-      break;
-    }
 
     default:
-      throw new Error(`Unsupported compression: ${compression}`);
+      // Only the two bitfield codes remain, and `validateOptions` has checked their depth.
+      bitfields = options.bitfields ?? getDefaultBitfieldMasks(bitsPerPixel as 16 | 32);
+      pixelData = encodeBitfields(raw, bitsPerPixel as 16 | 32, bitfields, isTopDown);
   }
 
-  // Build header + pixel data
-  const header = writeHeader({
+  const params = {
     width: raw.width,
     height: raw.height,
     bitsPerPixel,
@@ -128,20 +154,22 @@ export function encode(raw: RawImageData, options: EncodeOptions = {}): Uint8Arr
     headerType,
     isTopDown,
     bitfields,
-  });
+  };
 
-  const result = new Uint8Array(header.length + pixelData.length);
-  result.set(header, 0);
-  result.set(pixelData, header.length);
+  const headerSize = headerLength(params);
+  const result = new Uint8Array(headerSize + pixelData.length);
+  writeHeader(result, params);
+  result.set(pixelData, headerSize);
 
   return result;
 }
 
 /**
- * Auto-detect bit depth from channel count.
+ * Picks the depth that holds every source channel and no more.
  *
- * @param channels Number of color channels.
- * @return Corresponding bit depth.
+ * @param channels Number of color channels in the source.
+ *
+ * @return `8` for grayscale, `24` for RGB, `32` for RGBA.
  */
 function getDefaultBitsPerPixel(channels: 1 | 3 | 4): 8 | 24 | 32 {
   if (channels === 1) return 8;
@@ -150,49 +178,65 @@ function getDefaultBitsPerPixel(channels: 1 | 3 | 4): 8 | 24 | 32 {
 }
 
 /**
- * Return default bitfield masks: RGB565 for 16-bit, BGRA8888 for 32-bit.
+ * Picks the masks used when a bitfields image names none.
  *
  * @param bitsPerPixel Target bit depth.
- * @return Default bitfield masks.
+ *
+ * @return RGB565 at 16bpp, BGRA8888 at 32bpp.
  */
 function getDefaultBitfieldMasks(bitsPerPixel: 16 | 32): BitfieldMasks {
-  if (bitsPerPixel === 16) {
-    return { redMask: 0x0000F800, greenMask: 0x000007E0, blueMask: 0x0000001F };
-  }
-  return {
-    redMask: 0x00FF0000,
-    greenMask: 0x0000FF00,
-    blueMask: 0x000000FF,
-    alphaMask: 0xFF000000,
-  };
+  return bitsPerPixel === 16 ? RGB565_MASKS : BGRA8888_MASKS;
 }
 
 /**
- * Validate that compression and bit depth are compatible.
+ * Rejects the combinations of source, depth and compression that cannot produce a valid BMP.
  *
  * @param raw Source pixel data.
  * @param bitsPerPixel Target bit depth.
  * @param compression Compression type.
  * @param isTopDown Whether rows are stored top-down.
+ * @param palette Palette the caller supplied, if any.
+ *
+ * @throws {BmpError} `INVALID_DIMENSIONS`, `INVALID_DATA_SIZE`, or `INCOMPATIBLE_OPTIONS`.
  */
-function validateOptions(raw: RawImageData, bitsPerPixel: number, compression: number, isTopDown: boolean): void {
-  if (raw.width <= 0 || raw.height <= 0) {
-    throw new Error("Invalid image dimensions");
-  }
+function validateOptions(
+  raw: RawImageData,
+  bitsPerPixel: number,
+  compression: number,
+  isTopDown: boolean,
+  palette?: Color[],
+): void {
+  validateImageSize(raw.width, raw.height);
+
   const expectedSize = raw.width * raw.height * raw.channels;
   if (raw.data.length !== expectedSize) {
-    throw new Error(`Invalid data size: expected ${expectedSize}, got ${raw.data.length}`);
+    throw new BmpError("INVALID_DATA_SIZE", `Invalid data size: expected ${expectedSize}, got ${raw.data.length}`);
   }
-  if (compression === CompressionTypes.BI_RLE8 && bitsPerPixel !== 8) throw new Error("BI_RLE8 requires 8-bit format");
-  if (compression === CompressionTypes.BI_RLE4 && bitsPerPixel !== 4) throw new Error("BI_RLE4 requires 4-bit format");
+  if (compression === CompressionTypes.BI_RLE8 && bitsPerPixel !== 8) {
+    throw new BmpError("INCOMPATIBLE_OPTIONS", `BI_RLE8 needs an 8-bit depth, got ${bitsPerPixel}`);
+  }
+  if (compression === CompressionTypes.BI_RLE4 && bitsPerPixel !== 4) {
+    throw new BmpError("INCOMPATIBLE_OPTIONS", `BI_RLE4 needs a 4-bit depth, got ${bitsPerPixel}`);
+  }
   // RLE images are always stored bottom-up; top-down RLE is invalid per the BMP spec.
   if ((compression === CompressionTypes.BI_RLE8 || compression === CompressionTypes.BI_RLE4) && isTopDown) {
-    throw new Error("Top-down row order is not supported for RLE compression");
+    throw new BmpError("INCOMPATIBLE_OPTIONS", "RLE images are always stored bottom-up, so isTopDown cannot be set");
   }
   if (compression === CompressionTypes.BI_BITFIELDS && bitsPerPixel !== 16 && bitsPerPixel !== 32) {
-    throw new Error("BI_BITFIELDS requires 16 or 32-bit format");
+    throw new BmpError("INCOMPATIBLE_OPTIONS", `BI_BITFIELDS needs a 16- or 32-bit depth, got ${bitsPerPixel}`);
   }
   if (compression === CompressionTypes.BI_ALPHABITFIELDS && bitsPerPixel !== 32) {
-    throw new Error("BI_ALPHABITFIELDS requires 32-bit format");
+    throw new BmpError("INCOMPATIBLE_OPTIONS", `BI_ALPHABITFIELDS needs a 32-bit depth, got ${bitsPerPixel}`);
+  }
+
+  // Only the indexed depths read a palette, and every slot of it is addressable.
+  const indexed = bitsPerPixel <= 8 && compression !== CompressionTypes.BI_BITFIELDS &&
+    compression !== CompressionTypes.BI_ALPHABITFIELDS;
+  const needed = 1 << bitsPerPixel;
+  if (indexed && palette && palette.length < needed) {
+    throw new BmpError(
+      "INCOMPATIBLE_OPTIONS",
+      `A ${bitsPerPixel}-bit image needs a palette of ${needed} colors, got ${palette.length}`,
+    );
   }
 }

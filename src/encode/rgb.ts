@@ -9,8 +9,8 @@
  */
 
 import type { Color, RawImageData } from "../common.ts";
-import { grayscaleToIndices, packIndexedPixels, rawToBgr, rawToBgra, rawToRgb555 } from "./pixel.ts";
-import { convertToIndexed, generateGrayscalePalette, generatePalette } from "./quantize.ts";
+import { packIndexedPixels, rawToBgr, rawToBgra, rawToRgb555 } from "./pixel.ts";
+import { toIndexed } from "./quantize.ts";
 
 /** Result of BI_RGB encoding: pixel data and optional palette. */
 export interface EncodedRgbData {
@@ -21,59 +21,27 @@ export interface EncodedRgbData {
 }
 
 /**
- * Encode raw image data in BI_RGB format.
- *
- * @param raw Source pixel data.
- * @param bitsPerPixel Target bit depth.
- * @param isTopDown If true, rows are stored top-down. Default: `false`.
- * @param palette Custom palette for indexed formats. If omitted, one is auto-generated.
- * @return Encoded pixel data and palette (if indexed).
- */
-export function encodeRgb(
-  raw: RawImageData,
-  bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32,
-  isTopDown: boolean = false,
-  palette?: Color[],
-): EncodedRgbData {
-  // Direct color formats — no palette needed
-  if (bitsPerPixel === 16) return { pixelData: rawToRgb555(raw, isTopDown) };
-  if (bitsPerPixel === 24) return { pixelData: rawToBgr(raw, isTopDown) };
-  if (bitsPerPixel === 32) return { pixelData: rawToBgra(raw, isTopDown) };
-
-  // Indexed formats (1, 4, 8-bit)
-  return encodeIndexed(raw, bitsPerPixel, isTopDown, palette);
-}
-
-/**
- * Encode indexed (palette-based) pixel data for bit depths 1, 4, 8.
+ * Encodes raw image data in BI_RGB format.
  *
  * @param raw Source pixel data.
  * @param bitsPerPixel Target bit depth.
  * @param isTopDown If true, rows are stored top-down.
- * @param palette Custom palette. If omitted, one is auto-generated.
- * @return Encoded pixel data and palette.
+ * @param palette Custom palette for the indexed depths. Omitting it builds one from the image.
+ *
+ * @return Encoded pixel data, and the palette when the depth is an indexed one.
  */
-function encodeIndexed(
+export function encodeRgb(
   raw: RawImageData,
-  bitsPerPixel: 1 | 4 | 8,
+  bitsPerPixel: 1 | 4 | 8 | 16 | 24 | 32,
   isTopDown: boolean,
   palette?: Color[],
 ): EncodedRgbData {
-  const numColors = (1 << bitsPerPixel) as 2 | 16 | 256;
+  if (bitsPerPixel === 16) return { pixelData: rawToRgb555(raw, isTopDown) };
+  if (bitsPerPixel === 24) return { pixelData: rawToBgr(raw, isTopDown) };
+  if (bitsPerPixel === 32) return { pixelData: rawToBgra(raw, isTopDown) };
 
-  let finalPalette: Color[];
-  let indices: Uint8Array;
-
-  if (palette && palette.length >= numColors) {
-    // Use caller-provided palette
-    finalPalette = palette.slice(0, numColors);
-    indices = convertToIndexed(raw, finalPalette);
-  } else {
-    // Auto-generate palette
-    finalPalette = raw.channels === 1 ? generateGrayscalePalette(numColors) : generatePalette(raw, numColors);
-    indices = raw.channels === 1 ? grayscaleToIndices(raw, numColors) : convertToIndexed(raw, finalPalette);
-  }
-
-  const pixelData = packIndexedPixels(indices, { width: raw.width, height: raw.height, bitsPerPixel, isTopDown });
-  return { pixelData, palette: finalPalette };
+  const numColors = bitsPerPixel === 1 ? 2 : bitsPerPixel === 4 ? 16 : 256;
+  const indexed = toIndexed(raw, numColors, palette);
+  const layout = { width: raw.width, height: raw.height, bitsPerPixel, isTopDown };
+  return { pixelData: packIndexedPixels(indexed.indices, layout), palette: indexed.palette };
 }

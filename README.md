@@ -94,56 +94,51 @@ const bmp = encode(raw);
 ```ts
 interface EncodeOptions {
   /**
-   * Bits per pixel (1, 4, 8, 16, 24, or 32).
+   * Bit depth to encode at.
    *
-   * Default: Auto-detected from input channels
-   * - channels=1 (grayscale) → 8-bit
-   * - channels=3 (RGB) → 24-bit
-   * - channels=4 (RGBA) → 32-bit
+   * @default Follows `raw.channels`: 8 for grayscale, 24 for RGB, 32 for RGBA.
    */
   bitsPerPixel?: 1 | 4 | 8 | 16 | 24 | 32;
 
   /**
-   * BMP compression method.
-   * - 0 (BI_RGB) - No compression. Raw pixel data.
-   * - 1 (BI_RLE8) - 8-bit run-length encoding. 256-color indexed only.
-   * - 2 (BI_RLE4) - 4-bit run-length encoding. 16-color indexed only.
-   * - 3 (BI_BITFIELDS) - Uncompressed with custom RGB bit masks.
-   * - 6 (BI_ALPHABITFIELDS) - Uncompressed with custom RGBA bit masks.
+   * Compression method:
+   * - `0`: BI_RGB, uncompressed.
+   * - `1`: BI_RLE8, run-length encoded, 8bpp only.
+   * - `2`: BI_RLE4, run-length encoded, 4bpp only.
+   * - `3`: BI_BITFIELDS, channel masks, 16 or 32bpp.
+   * - `6`: BI_ALPHABITFIELDS, channel masks with alpha, 32bpp only.
    *
-   * Default: 0 (BI_RGB)
+   * @default 0
    */
   compression?: 0 | 1 | 2 | 3 | 6;
 
   /**
-   * BMP header format.
-   * - "BITMAPINFOHEADER": 40 bytes. Most compatible.
-   * - "BITMAPV4HEADER": 108 bytes. Includes masks and sRGB color space.
-   * - "BITMAPV5HEADER": 124 bytes. Adds ICC profiles and rendering intent.
+   * DIB header format to write:
+   * - `BITMAPINFOHEADER` — 40 bytes, most compatible.
+   * - `BITMAPV4HEADER` — 108 bytes, includes masks and sRGB color space.
+   * - `BITMAPV5HEADER` — 124 bytes, adds ICC profile and rendering intent.
    *
-   * Default: "BITMAPINFOHEADER"
+   * @default "BITMAPINFOHEADER"
    */
-  headerType?: "BITMAPINFOHEADER" | "BITMAPV4HEADER" | "BITMAPV5HEADER";
+  headerType?: HeaderType;
 
   /**
-   * Row order.
-   * - false - bottom-up (standard BMP)
-   * - true - top-down
+   * Store rows top-down instead of bottom-up.
    *
-   * Default: false
+   * @default false
    */
   isTopDown?: boolean;
 
   /**
-   * Color palette for indexed formats (1, 4, 8-bit).
-   * If not provided, palette will be generated automatically.
+   * Palette for the indexed depths (1, 4, 8), holding at least as many colors as the depth addresses;
+   * anything past that count is dropped. Omitting it quantizes the image down to a palette of its own.
    */
   palette?: Color[];
 
   /**
-   * Bit masks for BI_BITFIELDS/BI_ALPHABITFIELDS compression.
+   * Channel masks for the two bitfield compressions.
    *
-   * Default: RGB565 for 16-bit, BGRA8888 for 32-bit.
+   * @default RGB565 at 16bpp, BGRA8888 at 32bpp.
    */
   bitfields?: BitfieldMasks;
 }
@@ -170,6 +165,38 @@ const bmp = encode(raw, { bitsPerPixel: 8 });
 //    Uint8Array([...]) containing the BMP file bytes
 ```
 
+### Errors
+
+Every failure is a `BmpError` with a `code`. An error raised outside the package is wrapped in one of these, with the
+original in `cause`.
+
+```ts
+import { BmpError, decode, extractCompressedData } from "@nktkas/bmp";
+
+const file = await Deno.readFile("image.bmp");
+
+try {
+  const raw = decode(file);
+} catch (error) {
+  if (!(error instanceof BmpError)) throw error;
+  if (error.code !== "EMBEDDED_IMAGE") throw error;
+
+  const { data, compression } = extractCompressedData(file);
+}
+```
+
+| Code                      |     Thrown by     | Meaning                                                                         |
+| ------------------------- | :---------------: | ------------------------------------------------------------------------------- |
+| `INVALID_SIGNATURE`       |     `decode`      | The bytes do not begin with a BMP file header.                                  |
+| `UNSUPPORTED_HEADER`      |     `decode`      | The DIB header size matches no BMP header version this package reads.           |
+| `UNSUPPORTED_DEPTH`       |     `decode`      | The BMP format defines no pixel layout for this depth under this compression.   |
+| `UNSUPPORTED_COMPRESSION` |     `decode`      | The compression method is one this package does not implement.                  |
+| `EMBEDDED_IMAGE`          |     `decode`      | The pixel data is a complete JPEG or PNG; `extractCompressedData` returns it.   |
+| `MALFORMED_FILE`          |     `decode`      | The file is shorter than its header declares; `cause` holds the original error. |
+| `INVALID_DATA_SIZE`       |     `encode`      | The pixel buffer length is not width × height × channels.                       |
+| `INCOMPATIBLE_OPTIONS`    |     `encode`      | The given depth, compression, row order and palette do not fit together.        |
+| `INVALID_DIMENSIONS`      | `decode`,`encode` | The dimensions are not positive, or too large to allocate a buffer for.         |
+
 ## Benchmarks
 
 All benchmarks run on procedurally generated 1024×1024 images.
@@ -182,19 +209,20 @@ Milliseconds per operation (lower is better). **Bold** = fastest in row, `—` =
 
 | Format            | @nktkas/bmp | [@cwasm/nsbmp](https://www.npmjs.com/package/@cwasm/nsbmp) (WASM) | [bmpimagejs](https://www.npmjs.com/package/bmpimagejs) | [bmp-js](https://www.npmjs.com/package/bmp-js) | [fast-bmp](https://www.npmjs.com/package/fast-bmp) | [bmp-ts](https://www.npmjs.com/package/bmp-ts) |
 | ----------------- | :---------: | :---------------------------------------------------------------: | :----------------------------------------------------: | :--------------------------------------------: | :------------------------------------------------: | :--------------------------------------------: |
-| BI_RGB 1-bit      |  **0.99**   |                                2.3                                |                          2.6                           |                      2.8                       |                         —                          |                      3.1                       |
-| BI_RGB 1-bit (gs) |  **0.72**   |                                2.2                                |                          2.6                           |                      2.9                       |                         —                          |                      3.4                       |
-| BI_RGB 4-bit      |   **1.2**   |                                2.1                                |                          2.4                           |                      3.8                       |                         —                          |                      4.4                       |
-| BI_RGB 4-bit (gs) |  **0.50**   |                                2.0                                |                          2.7                           |                      4.1                       |                         —                          |                      4.3                       |
-| BI_RGB 8-bit      |   **1.3**   |                                1.7                                |                          2.8                           |                      4.7                       |                         —                          |                      6.2                       |
-| BI_RGB 8-bit (gs) |  **0.55**   |                                1.6                                |                          2.5                           |                      4.3                       |                        2.2                         |                      6.2                       |
-| BI_RGB 16-bit     |   **1.5**   |                              **1.5**                              |                           —                            |                      2.0                       |                         —                          |                      12.1                      |
-| BI_RGB 24-bit     |  **0.83**   |                                1.2                                |                          2.1                           |                      5.1                       |                        4.2                         |                      5.8                       |
-| BI_RGB 32-bit     |  **0.87**   |                                1.5                                |                          1.3                           |                      6.0                       |                         —                          |                      12.8                      |
-| BI_RLE4           |    0.90     |                             **0.71**                              |                          0.87                          |                       —                        |                         —                          |                       —                        |
-| BI_RLE8           |    0.81     |                             **0.60**                              |                          0.77                          |                       —                        |                         —                          |                       —                        |
-| BI_BITFIELDS 16   |   **1.5**   |                                4.4                                |                           —                            |                       —                        |                         —                          |                      12.0                      |
-| BI_BITFIELDS 32   |   **1.8**   |                                4.1                                |                          4.0                           |                       —                        |                         —                          |                       —                        |
+| BI_RGB 1-bit      |   **1.4**   |                                2.4                                |                          2.7                           |                      2.8                       |                         —                          |                      3.5                       |
+| BI_RGB 1-bit (gs) |  **0.74**   |                                2.5                                |                          2.7                           |                      2.8                       |                         —                          |                      3.5                       |
+| BI_RGB 4-bit      |   **1.3**   |                                2.2                                |                          2.7                           |                      4.1                       |                         —                          |                      4.2                       |
+| BI_RGB 4-bit (gs) |  **0.47**   |                                1.9                                |                          2.3                           |                      3.8                       |                         —                          |                      4.2                       |
+| BI_RGB 8-bit      |   **1.1**   |                                1.7                                |                          2.5                           |                      4.4                       |                         —                          |                      6.2                       |
+| BI_RGB 8-bit (gs) |  **0.56**   |                                1.7                                |                          2.6                           |                      4.4                       |                        2.3                         |                      6.3                       |
+| BI_RGB 16-bit     |     1.6     |                              **1.5**                              |                           —                            |                      2.2                       |                         —                          |                      12.0                      |
+| BI_RGB 24-bit     |   **1.1**   |                                1.4                                |                          2.2                           |                      2.4                       |                        4.4                         |                      6.0                       |
+| BI_RGB 32-bit     |   **1.0**   |                                1.6                                |                          1.4                           |                      5.8                       |                         —                          |                      12.9                      |
+| BI_RLE4           |  **0.81**   |                               0.85                                |                          0.99                          |                       —                        |                         —                          |                       —                        |
+| BI_RLE8           |  **0.70**   |                               0.72                                |                          0.91                          |                       —                        |                         —                          |                       —                        |
+| BI_RLE8 (gs)      |  **0.22**   |                                1.2                                |                          1.2                           |                       —                        |                         —                          |                       —                        |
+| BI_BITFIELDS 16   |   **1.5**   |                                4.6                                |                           —                            |                       —                        |                         —                          |                      12.1                      |
+| BI_BITFIELDS 32   |   **1.9**   |                                4.3                                |                          4.0                           |                       —                        |                         —                          |                       —                        |
 
 ### Encode comparison
 
@@ -202,19 +230,20 @@ Milliseconds per operation (lower is better). **Bold** = fastest in row, `—` =
 
 | Format            | @nktkas/bmp | [fast-bmp](https://www.npmjs.com/package/fast-bmp) | [bmp-js](https://www.npmjs.com/package/bmp-js) |
 | ----------------- | :---------: | :------------------------------------------------: | :--------------------------------------------: |
-| BI_RGB 1-bit      |    11.9     |                         —                          |                       —                        |
-| BI_RGB 1-bit (gs) |     2.7     |                         —                          |                       —                        |
-| BI_RGB 4-bit      |    28.6     |                         —                          |                       —                        |
-| BI_RGB 4-bit (gs) |     7.1     |                         —                          |                       —                        |
-| BI_RGB 8-bit      |    264.1    |                         —                          |                       —                        |
-| BI_RGB 8-bit (gs) |  **0.50**   |                        3.3                         |                       —                        |
-| BI_RGB 16-bit     |     1.2     |                         —                          |                       —                        |
+| BI_RGB 1-bit      |    12.2     |                         —                          |                       —                        |
+| BI_RGB 1-bit (gs) |    0.74     |                         —                          |                       —                        |
+| BI_RGB 4-bit      |     9.6     |                         —                          |                       —                        |
+| BI_RGB 4-bit (gs) |    0.89     |                         —                          |                       —                        |
+| BI_RGB 8-bit      |    38.4     |                         —                          |                       —                        |
+| BI_RGB 8-bit (gs) |  **0.08**   |                        3.4                         |                       —                        |
+| BI_RGB 16-bit     |     1.3     |                         —                          |                       —                        |
 | BI_RGB 24-bit     |   **1.3**   |                        8.2                         |                      1.4                       |
-| BI_RGB 32-bit     |     1.4     |                         —                          |                       —                        |
-| BI_RLE4           |    26.3     |                         —                          |                       —                        |
-| BI_RLE8           |    15.5     |                         —                          |                       —                        |
+| BI_RGB 32-bit     |     1.3     |                         —                          |                       —                        |
+| BI_RLE4           |     9.6     |                         —                          |                       —                        |
+| BI_RLE8           |    11.7     |                         —                          |                       —                        |
+| BI_RLE8 (gs)      |     2.2     |                         —                          |                       —                        |
 | BI_BITFIELDS 16   |     1.8     |                         —                          |                       —                        |
-| BI_BITFIELDS 32   |     4.3     |                         —                          |                       —                        |
+| BI_BITFIELDS 32   |     4.0     |                         —                          |                       —                        |
 
 ## License
 
